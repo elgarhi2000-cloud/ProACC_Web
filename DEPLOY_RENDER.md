@@ -18,10 +18,18 @@ The included Blueprint selects the free plan and does not provision a database o
 
 ## Persistence
 
-Free instances lose filesystem changes on restarts/redeployments. Company registry edits, encryption keys, audit files, and attachments will not persist. The registry is seeded from environment configuration when its file is missing; configure all demo companies there when using the free plan.
+Free instances lose filesystem changes on restarts/redeployments. Company registry edits, encryption keys, and audit files will not persist. Journal attachments are now stored on the user device and are unaffected by Render restarts. The registry is seeded from environment configuration when its file is missing; configure all demo companies there when using the free plan.
 
-For persistent use, choose a paid service with a disk mounted at /app/App_Data and verify the app user can write to it. Configure company AttachPath values under /app/App_Data/attachments/<company-key> on Linux. A Windows attachment path will not work. Paid service/disk selection requires a separate spending decision.
+For persistent use, choose a paid service with a disk mounted at /app/App_Data and verify the app user can write to it. The company AttachPath setting describes a folder on the user device, for example C:\Attach. It is not a server filesystem path. Paid service/disk selection requires a separate spending decision.
 
 ## Configuration
 
 appsettings.Local.json is loaded only in Development. Production settings must use Render environment variables. Do not commit local settings, database backups, real company data, passwords, or encryption keys.
+
+## Local journal attachments
+
+Use Chrome or Edge on a desktop over HTTPS. In the entry editor, open local attachments, choose the folder specified by AttachPath, and grant read/write permission. Files are copied directly in the browser; neither file contents nor filenames are sent to the application server. The server only checks access and returns company/entry metadata.
+
+Each dialog asks for a folder. Browser APIs cannot verify or automatically open the full configured path. Subfolders use a stable company identifier and a year-entry identifier. Existing files in older server folders are not migrated or deleted. Each saved file has a unique suffix to avoid overwriting. Users on other devices cannot see these files unless they have their own copy of the same folders.
+
+Validation: `node --test tests/local-journal-attachments.test.mjs` covers folder isolation, traversal, limits, unique names, and a mocked browser save flow. A real folder permission prompt must be accepted by the user.
