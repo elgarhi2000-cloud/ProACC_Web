@@ -4,6 +4,7 @@ COPY BlazorApp1/BlazorApp1.csproj BlazorApp1/
 RUN dotnet restore BlazorApp1/BlazorApp1.csproj -r linux-x64
 COPY . .
 RUN dotnet publish BlazorApp1/BlazorApp1.csproj -c Release -r linux-x64 --no-restore --self-contained false -o /out /p:UseAppHost=false
+RUN test -s /out/wwwroot/_framework/blazor.web.js
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble AS runtime
 WORKDIR /app
