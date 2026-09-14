@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: proacc-web
+    runtime: docker
+    plan: free
+    branch: main
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ASPNETCORE_FORWARDEDHEADERS_ENABLED
+        value: "true"
+      - key: ConnectionStrings__DefaultConnection
+        sync: false
+      - key: ConnectionStrings__CustomUserConnection
+        sync: false
+      - key: SystemAdmin__PasswordHash
+        sync: false
+      - key: CompanyDatabases__Databases__0__Key
+        value: demo
+      - key: CompanyDatabases__Databases__0__DatabaseName
+        sync: false
+      - key: CompanyDatabases__Databases__0__DisplayName
+        value: Demo Company
+      - key: CompanyDatabases__Databases__0__LoginCodeHash
+        sync: false

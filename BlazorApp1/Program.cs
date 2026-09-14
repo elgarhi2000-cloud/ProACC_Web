@@ -96,6 +96,9 @@ app.UseAntiforgery();
 
 app.MapStaticAssets();
 
+// Liveness only; database connectivity is verified separately before sharing the demo.
+app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
+
 app.MapGet("/assets/proacc-logo.ico", (IWebHostEnvironment env) =>
 {
     var logoPath = Path.Combine(env.ContentRootPath, "Icon.ico");
