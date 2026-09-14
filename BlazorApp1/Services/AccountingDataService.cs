@@ -15,7 +15,12 @@ public partial class AccountingDataService(IProAccDbContextAccessor dbContextAcc
     public async Task<DashboardDataVm> GetDashboardDataAsync()
     {
         await access.RequireAsync("Main");
-        var periodGlQuery = GetFilteredGlEntries();
+        var databaseKey = sessionService.SelectedDatabaseKey;
+        var username = sessionService.CurrentUsername;
+        var periodId = sessionService.SelectedPeriodId;
+        await using var dbContext = dbContextAccessor.CreateContext();
+        var periodGlQuery = dbContext.GLEntries.AsNoTracking()
+            .Where(g => !periodId.HasValue || g.PeriodID == periodId.Value);
         var counts = await periodGlQuery
             .GroupBy(_ => 1)
             .Select(g => new
@@ -56,7 +61,7 @@ public partial class AccountingDataService(IProAccDbContextAccessor dbContextAcc
                 Level0Name = level0 == null ? null : level0.Level0Name
             }).ToListAsync();
 
-        var accountTotals = await GetFilteredTransactions()
+        var accountTotals = await dbContext.Transactions.AsNoTracking().Where(t => !periodId.HasValue || (t.GL != null && t.GL.PeriodID == periodId.Value))
             .GroupBy(t => t.ACCID)
             .Select(g => new
             {
@@ -130,12 +135,16 @@ public partial class AccountingDataService(IProAccDbContextAccessor dbContextAcc
             .ThenBy(x => x.AccountId)
             .ToList();
 
-        var journalEntries = await BuildJournalQuery().Take(8).ToListAsync();
+        var journalEntries = await BuildJournalQuery(periodGlQuery).Take(8).ToListAsync();
         var companyLogo = await dbContext.Companies
             .AsNoTracking()
             .OrderBy(x => x.CompID)
             .Select(x => x.Pic)
             .FirstOrDefaultAsync();
+
+        if (!sessionService.IsAuthenticated || sessionService.SelectedDatabaseKey != databaseKey
+            || sessionService.CurrentUsername != username || sessionService.SelectedPeriodId != periodId)
+            throw new InvalidOperationException("تغيرت جلسة العمل أثناء تحميل الصفحة. أعد فتح الصفحة الرئيسية.");
 
         return new DashboardDataVm
         {
@@ -843,9 +852,11 @@ public partial class AccountingDataService(IProAccDbContextAccessor dbContextAcc
         return query.Where(g => (g.SourceID == 2 && rc) || (g.SourceID == 3 && pm) || ((g.SourceID == 5 || g.SourceID == 6) && inv) || ((g.SourceID == null || (g.SourceID != 2 && g.SourceID != 3 && g.SourceID != 5 && g.SourceID != 6)) && gl));
     }
 
-    private IQueryable<JournalEntryVm> BuildJournalQuery()
+    private IQueryable<JournalEntryVm> BuildJournalQuery() => BuildJournalQuery(GetFilteredGlEntries());
+
+    private IQueryable<JournalEntryVm> BuildJournalQuery(IQueryable<GlEntity> entries)
     {
-        return AccessibleEntries(GetFilteredGlEntries())
+        return AccessibleEntries(entries)
             .OrderByDescending(g => g.GLDate)
             .ThenByDescending(g => g.GLID)
             .Select(g => new JournalEntryVm

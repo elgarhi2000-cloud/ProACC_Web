@@ -6,6 +6,7 @@ namespace BlazorApp1.Services;
 public interface IProAccDbContextAccessor
 {
     ProAccDbContext Context { get; }
+    ProAccDbContext CreateContext();
     void Reset();
 }
 
@@ -52,6 +53,20 @@ public sealed class ProAccDbContextAccessor(
         }
     }
 
+    // The caller owns this context. It is independent of the circuit's editing context.
+    public ProAccDbContext CreateContext()
+    {
+        lock (syncRoot)
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            var selectedKey = sessionService.SelectedDatabaseKey
+                ?? throw new InvalidOperationException("يجب اختيار المنشأة قبل الوصول إلى بياناتها.");
+            var options = new DbContextOptionsBuilder<ProAccDbContext>()
+                .UseSqlServer(companyDatabaseService.BuildConnectionString(selectedKey), sql => sql.EnableRetryOnFailure(3))
+                .Options;
+            return new ProAccDbContext(options);
+        }
+    }
     public void Reset()
     {
         lock (syncRoot)
