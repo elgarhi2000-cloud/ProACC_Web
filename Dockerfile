@@ -1,6 +1,7 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0-noble AS build
 WORKDIR /src
-COPY BlazorApp1/BlazorApp1.csproj BlazorApp1/
+# Razor files must exist during restore so .NET includes the Blazor web assets.
+COPY . .
 RUN dotnet restore BlazorApp1/BlazorApp1.csproj -r linux-x64
 COPY . .
 RUN dotnet publish BlazorApp1/BlazorApp1.csproj -c Release -r linux-x64 --no-restore --self-contained false -o /out /p:UseAppHost=false
