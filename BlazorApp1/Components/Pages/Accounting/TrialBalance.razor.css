@@ -1,0 +1,67 @@
+.trial-balance-page { padding-bottom: 24px; }
+.trial-balance-heading { min-height: 42px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.trial-balance-heading h3 { margin: 0; display: flex; align-items: center; gap: 8px; color: #272c38; font-size: 1.08rem; font-weight: 800; }
+.trial-balance-heading h3 i { color: #5b4bdb; }
+.trial-balance-heading small { display: block; margin-top: 3px; color: #818896; font-size: .71rem; }
+.trial-balance-heading-actions { display: flex; align-items: center; gap: 7px; }
+.trial-balance-heading-actions .btn { height: 31px; padding: 4px 9px; font-size: .72rem; font-weight: 750; }
+.trial-balance-count { min-width: 74px; height: 31px; padding: 5px 9px; display: inline-flex; align-items: center; justify-content: center; color: #4f43c7; background: #f3f1fc; border: 1px solid #e1dcfa; border-radius: 6px; font-size: .72rem; font-weight: 800; }
+.trial-balance-alert { margin-bottom: 9px; padding: 8px 11px; font-size: .75rem; }
+.trial-balance-filter-card { margin-bottom: 9px; border: 1px solid #e1e4e9; border-radius: 7px; box-shadow: 0 1px 4px rgba(16,24,40,.04); }
+.trial-balance-filter-grid { padding: 10px; display: grid; grid-template-columns: minmax(170px, 1.1fr) minmax(145px, .85fr) minmax(145px, .85fr) auto auto minmax(300px, 1.8fr); align-items: end; gap: 8px; }
+.trial-balance-filter-field { min-width: 0; }
+.trial-balance-filter-field label { margin-bottom: 4px; display: block; color: #5d6471; font-size: .69rem; font-weight: 750; }
+.trial-balance-filter-field select, .trial-balance-filter-field input { width: 100%; height: 31px; padding: 4px 8px; color: #343a46; background: #fff; border: 1px solid #d8dce3; border-radius: 5px; font: inherit; font-size: .74rem; outline: none; }
+.trial-balance-filter-field select:focus, .trial-balance-filter-field input:focus { border-color: #8d82e5; box-shadow: 0 0 0 2px rgba(91,75,219,.09); }
+.trial-balance-apply, .trial-balance-levels-button { height: 31px; padding: 4px 10px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; font-size: .72rem; font-weight: 750; }
+.trial-balance-levels-button { color: #5548cf; background: #f5f3ff; border: 1px solid #dfd9fb; }
+.trial-balance-levels-button:hover, .trial-balance-levels-button.active { color: #fff; background: #5b4bdb; border-color: #5b4bdb; }
+.trial-balance-search { min-width: 0; height: 31px; display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; overflow: hidden; background: #fff; border: 1px solid #d8dce3; border-radius: 5px; transition: border-color .15s ease, box-shadow .15s ease; }
+.trial-balance-search:focus-within { border-color: #8d82e5; box-shadow: 0 0 0 2px rgba(91,75,219,.09); }
+.trial-balance-search > i { color: #8175df; text-align: center; }
+.trial-balance-search input { min-width: 0; height: 29px; padding: 3px 5px; border: 0; outline: none; font: inherit; font-size: .73rem; }
+.trial-balance-search-clear { width: 27px; height: 27px; padding: 0; display: grid; place-items: center; color: #8a909b; background: transparent; border: 0; font-size: .68rem; }
+.trial-balance-period-note { margin: 0 10px 9px; padding: 6px 8px; display: flex; align-items: center; gap: 6px; color: #747b88; background: #fafbfc; border-radius: 4px; font-size: .68rem; }
+.trial-balance-period-note i { color: #5b4bdb; }
+.trial-balance-summary { margin-bottom: 9px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.trial-balance-summary > div { min-width: 0; padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; background: #fff; border: 1px solid #e1e4e9; border-radius: 6px; }
+.trial-balance-summary span { color: #717987; font-size: .69rem; font-weight: 700; }
+.trial-balance-summary strong { direction: ltr; font-size: .82rem; font-variant-numeric: tabular-nums; }
+.trial-balance-summary .debit { color: #13795b; }
+.trial-balance-summary .credit { color: #c73e4d; }
+.trial-balance-summary .zero { color: #667085; }
+.trial-balance-loading { min-height: 170px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #7b8290; }
+.trial-balance-loading i { color: #5b4bdb; font-size: 1.25rem; }
+.trial-balance-table-card { overflow: hidden; border: 1px solid #dfe2e8; border-radius: 7px; box-shadow: 0 1px 4px rgba(16,24,40,.04); }
+.trial-balance-table-title { min-height: 37px; padding: 6px 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #f8f9fb; border-bottom: 1px solid #e3e6eb; }
+.trial-balance-table-title > div { display: flex; align-items: center; gap: 6px; color: #424957; font-size: .75rem; }
+.trial-balance-table-title i { color: #5b4bdb; }
+.trial-balance-table-title span, .trial-balance-table-title small { color: #858c98; font-size: .67rem; }
+.trial-balance-table-wrap { max-height: calc(100vh - 365px); overflow: auto; scrollbar-width: thin; }
+.trial-balance-table { min-width: 1250px; margin: 0; table-layout: fixed; border-collapse: separate; border-spacing: 0; font-size: .7rem; }
+.trial-balance-table th, .trial-balance-table td { height: 31px; padding: 4px 6px; border-left: 1px solid #e2e5ea; border-bottom: 1px solid #e2e5ea; vertical-align: middle; }
+.trial-balance-table thead th { position: sticky; z-index: 2; top: 0; color: #555e6c; background: #f0f2f5; font-size: .68rem; font-weight: 800; white-space: nowrap; }
+.trial-balance-table thead th.sortable-column { min-width: 90px; padding: 0 7px; cursor: pointer; user-select: none; }
+.trial-balance-table .column-sort-button { width: 100%; height: 30px; padding: 4px 2px; display: flex; align-items: center; justify-content: space-between; gap: 5px; color: inherit; background: transparent; border: 0; font: inherit; font-weight: inherit; text-align: right; white-space: nowrap; cursor: pointer; }
+.trial-balance-table .column-sort-button i { flex: 0 0 auto; color: #9189c9; font-size: .62rem; }
+.trial-balance-table thead th[aria-sort="ascending"], .trial-balance-table thead th[aria-sort="descending"] { color: #473bbd; background: #ebe9fa; }
+.trial-balance-table thead th[aria-sort="ascending"] .column-sort-button i, .trial-balance-table thead th[aria-sort="descending"] .column-sort-button i { color: #5948d6; }
+.trial-balance-table .journal-column-resizer { position: absolute; z-index: 4; top: 0; bottom: 0; left: -3px; width: 7px; cursor: col-resize; touch-action: none; user-select: none; }
+.trial-balance-table .journal-column-resizer::after { content: ""; position: absolute; top: 6px; bottom: 6px; left: 3px; width: 1px; background: transparent; transition: background-color .15s ease; }
+.trial-balance-table thead th:hover .journal-column-resizer::after, .trial-balance-table .journal-column-resizer.is-resizing::after { background: #7768df; }
+.trial-balance-table.is-resizing-columns { cursor: col-resize; user-select: none; }
+.trial-balance-table tbody tr:nth-child(even) td { background: #fafbfc; }
+.trial-balance-table tbody tr:hover td { background: #f5f3fe; }
+.trial-balance-table .account-code { width: 125px; direction: ltr; text-align: right; font-weight: 750; font-variant-numeric: tabular-nums; }
+.trial-balance-table .account-name { width: 240px; text-align: right; }
+.trial-balance-table .level-column { width: 155px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trial-balance-table .amount { direction: ltr; width: 125px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.trial-balance-table .closing { font-weight: 850; }
+.trial-balance-table .debit { color: #13795b; }
+.trial-balance-table .credit { color: #b63f50; }
+.trial-balance-table .zero { color: #8b929e; }
+.trial-balance-table tfoot th { position: sticky; z-index: 1; bottom: 0; height: 34px; color: #333946; background: #f1f2f6; border-top: 1px solid #d5d9e1; font-weight: 850; }
+.trial-balance-empty { height: 110px !important; color: #858c98; text-align: center; }
+@media (max-width: 1250px) { .trial-balance-filter-grid { grid-template-columns: repeat(3, minmax(150px, 1fr)); } .trial-balance-search { grid-column: span 2; } }
+@media (max-width: 760px) { .trial-balance-heading { align-items: stretch; flex-direction: column; } .trial-balance-heading-actions { flex-wrap: wrap; } .trial-balance-filter-grid { grid-template-columns: 1fr 1fr; } .trial-balance-search { grid-column: 1 / -1; } .trial-balance-summary { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 480px) { .trial-balance-filter-grid, .trial-balance-summary { grid-template-columns: 1fr; } .trial-balance-search { grid-column: auto; } }

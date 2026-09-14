@@ -1,0 +1,142 @@
+@inject ReportDesignService Designs
+@inject IAccountingDataService Accounting
+@using BlazorApp1.Services
+@using BlazorApp1.Data.ProAcc
+@inject IJSRuntime JS
+
+<section class="card mb-3" dir="rtl" aria-label="بيانات طباعة الفاتورة">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>بيانات طباعة @(IsPurchase ? "فاتورة المشتريات" : "فاتورة المبيعات")</strong>
+        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="OnClose">إغلاق</button>
+    </div>
+    <div class="card-body">
+        <p class="text-muted">يُجلب اسم العميل أو المورد وعنوانه ورقمه الضريبي من بطاقة جهة التعامل. استكمل البيانات الناقصة وفق المستند الأصلي؛ التعديلات هنا للطباعة الحالية فقط ولا تُحفظ في البطاقة.</p>
+        <div class="row g-3">
+            @foreach (var field in fields)
+            {
+                <div class="col-md-6 col-lg-4">
+                    <label class="form-label" for="@field.Key">@field.Label</label>
+                    <input id="@field.Key" class="form-control" type="@field.Type" @bind="field.Value" />
+                </div>
+            }
+        </div>
+        <p class="text-muted mt-3">تتضمن الطباعة رمز QR لبيانات الفاتورة؛ الرمز لا يمثل اعتماد الهيئة. أدخل وقت الإصدار الفعلي بتوقيت السعودية. العملة: الريال السعودي.</p>
+        @if (error is not null) { <div class="alert alert-danger" role="alert">@error</div> }
+        <button type="button" class="btn btn-primary mt-2" @onclick="Print" disabled="@(printing || loading || loadFailed)"><i class="bi bi-printer"></i> طباعة الفاتورة</button>
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public JournalEntryExportVm Report { get; set; } = new();
+    [Parameter, EditorRequired] public GlEntity Header { get; set; } = new();
+    [Parameter, EditorRequired] public List<TransEntity> Lines { get; set; } = new();
+    [Parameter] public bool IsPurchase { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    private string? error;
+    private bool printing;
+    private bool loading;
+    private bool loadFailed;
+    private (int GlId, int? CardId, bool Purchase)? loadedKey;
+    private List<PrintField> fields = new();
+    private sealed class PrintField(string key, string label, string? value, string type = "text")
+    {
+        public string Key { get; } = key;
+        public string Label { get; } = label;
+        public string Value { get; set; } = value ?? "";
+        public string Type { get; } = type;
+    }
+    protected override async Task OnParametersSetAsync()
+    {
+        var key = (Header.GLID, Header.CardID, IsPurchase);
+        if (loadedKey == key) return;
+        loadedKey = key;
+        loading = true;
+        loadFailed = false;
+        error = null;
+        CardEntity? card = null;
+        try
+        {
+            if (Header.CardID.HasValue)
+            {
+                card = await Accounting.GetInvoiceCardAsync(Header.CardID.Value);
+                if (card is null) throw new InvalidOperationException("Invoice card was not found.");
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Invoice card loading failed: {0}", ex);
+            loadFailed = true;
+            error = "تعذر جلب بيانات جهة التعامل. أغلق نافذة الطباعة وأعد فتحها للمحاولة مجددًا.";
+        }
+        finally { loading = false; }
+        var partyName = string.IsNullOrWhiteSpace(card?.CardName) ? Report.Card : card.CardName;
+        var partyAddress = string.Join(" - ", new[] { card?.Address1, card?.Address2 }
+            .Where(value => !string.IsNullOrWhiteSpace(value)).Select(value => value!.Trim()).Distinct());
+        fields = new()
+        {
+            new("sellerName", "اسم البائع / المورد", IsPurchase ? partyName : Report.CompanyName),
+            new("sellerAddress", "العنوان الوطني للبائع (المبنى، الشارع، الحي، المدينة، الرمز البريدي، الدولة)", IsPurchase ? partyAddress : Report.CompanyAddress),
+            new("sellerVat", "الرقم الضريبي للبائع", IsPurchase ? card?.VAT : Report.TaxNumber),
+            new("sellerCr", "السجل التجاري للبائع", IsPurchase ? "" : Report.CommercialRecord),
+            new("buyerName", "اسم المشتري", IsPurchase ? Report.CompanyName : partyName),
+            new("buyerAddress", "العنوان الوطني للمشتري", IsPurchase ? Report.CompanyAddress : partyAddress),
+            new("buyerVat", "الرقم الضريبي للمشتري (إن كان مسجلاً)", IsPurchase ? Report.TaxNumber : card?.VAT),
+            new("number", IsPurchase ? "رقم فاتورة المورد الأصلية" : "رقم الفاتورة", IsPurchase ? Header.GLRef : Header.SanadID?.ToString()),
+            new("issueDate", "تاريخ إصدار الفاتورة", Header.GLDate?.ToString("yyyy-MM-dd"), "date"),
+            new("issueTime", "وقت إصدار الفاتورة (توقيت السعودية)", Header.GLDate is { TimeOfDay: var time } && time != TimeSpan.Zero ? Header.GLDate.Value.ToString("HH:mm:ss") : null, "time"),
+            new("supplyDate", "تاريخ التوريد الفعلي", null, "date"),
+            new("unit", "وحدة القياس للبنود التي لم تحدد وحدتها", null),
+            new("paymentTerms", "شروط السداد / تاريخ الاستحقاق", null),
+            new("taxReason", "سبب ورمز الإعفاء أو النسبة الصفرية (عند انطباقه)", null)
+        };
+    }
+    private async Task Print()
+    {
+        error = null;
+        printing = true;
+        try
+        {
+            var values = fields.ToDictionary(f => f.Key, f => f.Value.Trim());
+            foreach (var key in new[] { "sellerName", "sellerAddress", "sellerVat", "buyerName", "buyerAddress", "number", "issueDate", "issueTime", "supplyDate" })
+            {
+                if (string.IsNullOrWhiteSpace(values[key])) { error = $"يرجى إدخال {fields.First(f => f.Key == key).Label}."; return; }
+            }
+            foreach (var key in new[] { "sellerVat", "buyerVat" })
+            {
+                if (values[key].Length > 0 && !System.Text.RegularExpressions.Regex.IsMatch(values[key], "^3[0-9]{13}3$"))
+                { error = "الرقم الضريبي السعودي يجب أن يتكون من 15 رقمًا ويبدأ وينتهي بالرقم 3."; return; }
+            }
+            if (Lines.Count == 0 || Lines.Any(l => (l.Qty ?? 0) <= 0 || !l.Amount.HasValue || l.Amount < 0 || (l.Discount ?? 0) < 0 || !l.TaxRate.HasValue || l.TaxRate < 0 || l.TaxRate > 100 || string.IsNullOrWhiteSpace(l.TransDesc)))
+            { error = "أكمل وصف الأصناف وكمياتها ومبالغها ونسب الضريبة قبل الطباعة."; return; }
+            if (Lines.Any(l => string.IsNullOrWhiteSpace(l.Unit)) && string.IsNullOrWhiteSpace(values["unit"]))
+            { error = "أدخل وحدة القياس للبنود التي لم تحدد وحدتها."; return; }
+            if (Lines.Any(l => l.TaxRate == 0) && string.IsNullOrWhiteSpace(values["taxReason"]))
+            { error = "أدخل سبب ورمز المعاملة الضريبية للبنود ذات النسبة الصفرية."; return; }
+            var items = Lines.Select(l => new
+            {
+                code = l.ItemCode, description = l.TransDesc, quantity = l.Qty, unit = string.IsNullOrWhiteSpace(l.Unit) ? values["unit"] : l.Unit,
+                unitPrice = ((l.Amount ?? 0) + (l.Discount ?? 0)) / l.Qty!.Value,
+                discount = l.Discount ?? 0, net = l.Amount ?? 0, rate = l.TaxRate ?? 0,
+                tax = decimal.Round((l.Amount ?? 0) * (l.TaxRate ?? 0) / 100m, 2, MidpointRounding.AwayFromZero)
+            }).ToList();
+            if (!DateTime.TryParseExact(values["issueDate"] + "T" + values["issueTime"],
+                new[] { "yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd'T'HH:mm:ss" },
+                System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var issuedAt))
+            { error = "أدخل تاريخ ووقت إصدار صحيحين لإنشاء رمز QR."; return; }
+            var netTotal = items.Sum(item => decimal.Round(item.net, 2, MidpointRounding.AwayFromZero));
+            var vatTotal = items.Sum(item => item.tax);
+            string qrCodeImage;
+            try
+            {
+                var payload = InvoiceQrCode.Encode(values["sellerName"], values["sellerVat"],
+                    new DateTimeOffset(issuedAt, TimeSpan.FromHours(3)), netTotal + vatTotal, vatTotal);
+                qrCodeImage = InvoiceQrCode.CreateImage(payload);
+            }
+            catch (ArgumentException ex) { error = ex.Message; return; }
+            Report.Design = await Designs.ForPrintAsync(IsPurchase ? "purchase" : "sales");
+            await JS.InvokeVoidAsync("journalEntryExport.print", Report, null, new { fields = values, items, isPurchase = IsPurchase, qrCodeImage });
+        }
+        catch (Exception ex) { System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex); error = "تعذرت طباعة الفاتورة؛ حاول مرة أخرى أو راجع مسؤول النظام."; }
+        finally { printing = false; }
+    }
+}

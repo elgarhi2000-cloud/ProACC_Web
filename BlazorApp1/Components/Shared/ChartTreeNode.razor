@@ -1,0 +1,59 @@
+@using BlazorApp1.Services
+
+<div class="chart-node">
+    <div class="chart-row">
+        @if (Node.Children.Count > 0)
+        {
+            <button type="button" class="node-toggle" aria-label="@(expanded ? $"طي {Node.Name}" : $"فتح {Node.Name}")" aria-expanded="@expanded" @onclick="() => expanded = !expanded">@(expanded ? "−" : "+")</button>
+        }
+        else if (Node.IsAccountLeaf)
+        {
+            <span class="node-account-icon" role="img" aria-label="حساب المستوى السادس" title="حساب المستوى السادس">
+                <i class="bi bi-journal-text" aria-hidden="true"></i>
+            </span>
+        }
+        else { <span class="node-toggle-placeholder" aria-hidden="true">·</span> }
+        <div class="node-content">
+            <span class="node-name @(IsMatch ? "node-match" : "")">@Node.Name</span>
+            <div class="node-meta">
+                <span class="node-code">@Node.DisplayNumber</span><span>@Node.LevelTitle</span>
+                @if (Node.Children.Count > 0) { <span>@Node.Children.Count فروع</span> }
+                @if (Node.SecondaryText == "غير نشط") { <span>غير نشط</span> }
+            </div>
+        </div>
+        <div class="node-actions">
+            <button class="btn btn-sm btn-light" disabled="@Disabled" @onclick="() => OnEditNodeRequested.InvokeAsync(Node)">تعديل</button>
+            <button class="btn btn-sm btn-outline-primary" disabled="@Disabled" title="@(Node.IsAccountLeaf ? "إضافة حساب آخر تحت نفس الحساب الرئيسي" : "إضافة حساب فرعي")" @onclick="() => OnAddAccountRequested.InvokeAsync(Node)">@(Node.IsAccountLeaf ? "إضافة مماثل" : "إضافة فرعي")</button>
+            <button class="btn btn-sm btn-light text-danger" disabled="@Disabled" aria-label="@($"حذف {Node.Name}")" title="حذف" @onclick="() => OnDeleteAccountRequested.InvokeAsync(Node)"><i class="bi bi-trash" aria-hidden="true"></i></button>
+        </div>
+    </div>
+    @if (expanded && Node.Children.Count > 0)
+    {
+        <div class="node-children">
+            @foreach (var child in Node.Children)
+            {
+                <ChartTreeNode @key="child.Key" Node="child" SearchTerm="SearchTerm" ExpandAll="ExpandAll" Disabled="Disabled"
+                    OnAddAccountRequested="OnAddAccountRequested" OnEditNodeRequested="OnEditNodeRequested" OnDeleteAccountRequested="OnDeleteAccountRequested" />
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ChartTreeNodeVm Node { get; set; } = default!;
+    [Parameter] public string SearchTerm { get; set; } = "";
+    [Parameter] public bool ExpandAll { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback<ChartTreeNodeVm> OnAddAccountRequested { get; set; }
+    [Parameter] public EventCallback<ChartTreeNodeVm> OnEditNodeRequested { get; set; }
+    [Parameter] public EventCallback<ChartTreeNodeVm> OnDeleteAccountRequested { get; set; }
+    private bool expanded, previousExpand, initialized;
+    private string previousSearch = "";
+    protected override void OnParametersSet()
+    {
+        if (!initialized || previousExpand != ExpandAll || previousSearch != SearchTerm) expanded = ExpandAll;
+        initialized = true; previousExpand = ExpandAll; previousSearch = SearchTerm;
+    }
+    private bool IsMatch => !string.IsNullOrWhiteSpace(SearchTerm) &&
+        (Node.Name.Contains(SearchTerm.Trim(), StringComparison.OrdinalIgnoreCase) || Node.DisplayNumber.Contains(SearchTerm.Trim(), StringComparison.OrdinalIgnoreCase));
+}

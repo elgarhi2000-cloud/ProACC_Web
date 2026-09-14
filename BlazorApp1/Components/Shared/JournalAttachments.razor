@@ -1,0 +1,152 @@
+@using BlazorApp1.Services
+@inject JournalAttachmentService Attachments
+@inject IJSRuntime JS
+@inject IUserAccessService Access
+@inject ILogger<JournalAttachments> Logger
+
+@if (Access.Has("Archive"))
+{
+
+<div class="attachment-control">
+    <details>
+        <summary class="btn btn-outline-secondary btn-sm"><i class="bi bi-paperclip"></i> مرفقات <i class="bi bi-chevron-down"></i></summary>
+        <div class="attachment-menu">
+            <label class="attachment-upload">
+                إضافة المرفقات
+                <InputFile @key="uploadInputKey" OnChange="Upload" multiple disabled="@(busy || EntryId <= 0)" aria-label="إضافة المرفقات" />
+            </label>
+            <button type="button" @onclick="Show" disabled="@(busy || EntryId <= 0)">عرض المرفقات</button>
+            @if (EntryId <= 0) { <small>احفظ القيد أولاً لإضافة المرفقات.</small> }
+        </div>
+    </details>
+</div>
+@if (visible)
+{
+    <div class="attachment-overlay" role="dialog" aria-modal="true" aria-label="مرفقات القيد">
+        <section class="card attachment-panel" dir="rtl">
+            <div class="card-header d-flex justify-content-between align-items-center"><strong>مرفقات القيد #@EntryId</strong><button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => visible = false" disabled="@busy">إغلاق</button></div>
+            <div class="card-body">
+                @if (!string.IsNullOrEmpty(folder)) { <p dir="ltr" class="text-break">@folder</p> }
+                @if (busy) { <p role="status">جاري معالجة المرفقات...</p> }
+                @if (message is not null) { <div class="alert alert-info" role="status">@message</div> }
+                @if (error is not null) { <div class="alert alert-danger" role="alert">@error</div> }
+                @if (!busy && files.Count == 0 && error is null) { <p>لا توجد مرفقات لهذا القيد.</p> }
+                <ul class="list-group">
+                    @foreach (var name in files)
+                    {
+                        <li class="list-group-item d-flex justify-content-between align-items-center gap-3"><span class="text-break">@name</span><button type="button" class="btn btn-outline-primary btn-sm" disabled="@busy" @onclick="() => Download(name)">تنزيل</button></li>
+                    }
+                </ul>
+            </div>
+        </section>
+    </div>
+}
+<style>
+    .attachment-control { position: relative; }
+    .attachment-control summary { list-style: none; min-height: 34px; display: flex; align-items: center; gap: 6px; }
+    .attachment-control summary::-webkit-details-marker { display: none; }
+    .attachment-menu { position: absolute; top: 100%; right: 0; min-width: 190px; padding: 7px; background: #fff; border: 1px solid #dfe2e8; border-radius: 6px; z-index: 1050; box-shadow: 0 5px 18px #0002; }
+    .attachment-menu button, .attachment-upload { position: relative; display: block; width: 100%; padding: 9px; text-align: right; border: 0; background: #fff; border-radius: 4px; font: inherit; cursor: pointer; }
+    .attachment-menu button:hover, .attachment-upload:hover { background: #f0edff; }
+    .attachment-upload input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+    .attachment-menu small { display: block; padding: 5px; }
+    .attachment-overlay { position: fixed; inset: 0; background: #0006; z-index: 1100; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    .attachment-panel { width: min(720px, 100%); max-height: 85vh; overflow: auto; }
+</style>
+
+}
+
+@code {
+    [Parameter] public int EntryId { get; set; }
+    private bool busy, visible;
+    private int uploadInputKey;
+    private string folder = "";
+    private List<string> files = new();
+    private string? error, message;
+    private async Task Refresh() { (folder, files) = await Attachments.ListAsync(EntryId); }
+    private async Task Show()
+    {
+        visible = true; busy = true; error = message = null; files.Clear(); folder = "";
+        try { await Refresh(); } catch (Exception ex) { error = ex is InvalidOperationException ? ex.Message : "تعذر الوصول إلى المرفقات. تحقق من المسار وصلاحيات الوصول."; }
+        finally { busy = false; }
+    }
+    private async Task Upload(InputFileChangeEventArgs args)
+    {
+        // Blazor associates the selected files with the current input DOM element.
+        // Capture them before changing component state; rendering/disabling the input
+        // earlier makes the browser-side file reference unavailable (_blazorFilesById).
+        var pending = new List<PendingUpload>();
+        var saved = 0;
+        try
+        {
+            if (args.FileCount > 20) throw new InvalidOperationException("اختر 20 ملفًا كحد أقصى في المرة الواحدة.");
+            foreach (var file in args.GetMultipleFiles(20))
+            {
+                var tempPath = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+                try
+                {
+                    await using var input = file.OpenReadStream(JournalAttachmentService.MaxFileSize);
+                    await using var temp = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true);
+                    await input.CopyToAsync(temp);
+                    pending.Add(new(tempPath, file.Name, file.Size));
+                }
+                catch
+                {
+                    TryDelete(tempPath);
+                    throw;
+                }
+            }
+
+            visible = true; busy = true; error = message = null;
+            foreach (var file in pending)
+            {
+                await using var content = new FileStream(file.TempPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);
+                await Attachments.SaveAsync(EntryId, file.Name, file.Size, content);
+                saved++;
+            }
+            await Refresh();
+        }
+        catch (Exception ex)
+        {
+            visible = true;
+            Logger.LogError(ex, "Failed to upload {FileCount} attachment(s) for journal entry {EntryId}.", args.FileCount, EntryId);
+            error = UploadError(ex);
+        }
+        finally
+        {
+            foreach (var file in pending) TryDelete(file.TempPath);
+            if (saved > 0) message = $"تم حفظ {saved} ملف.";
+            uploadInputKey++;
+            busy = false;
+        }
+    }
+    private async Task Download(string name)
+    {
+        busy = true; error = null;
+        try { await JS.InvokeVoidAsync("journalEntryExport.downloadBase64", name, "application/octet-stream", Convert.ToBase64String(await Attachments.ReadAsync(EntryId, name))); }
+        catch { error = "تعذر تنزيل الملف. تحقق من وجوده وصلاحيات الوصول إليه."; }
+        finally { busy = false; }
+    }
+
+    private static string UploadError(Exception exception)
+    {
+        var cause = exception.GetBaseException();
+        if (exception is UnauthorizedAccessException || cause is UnauthorizedAccessException)
+            return "ليس لديك صلاحية إضافة مرفقات لهذا القيد.";
+        if (exception is OperationCanceledException || cause is OperationCanceledException)
+            return "توقف رفع الملف قبل اكتماله. أعد المحاولة مع الإبقاء على الصفحة مفتوحة.";
+        if (exception is InvalidOperationException)
+            return exception.Message;
+
+        // Do not hide unexpected browser/streaming errors behind a generic message.
+        var detail = string.IsNullOrWhiteSpace(cause.Message) ? exception.Message : cause.Message;
+        return $"تعذر رفع الملف: {detail}";
+    }
+
+    private static void TryDelete(string path)
+    {
+        try { File.Delete(path); } catch { /* Temporary files are best-effort cleanup. */ }
+    }
+
+    private sealed record PendingUpload(string TempPath, string Name, long Size);
+}

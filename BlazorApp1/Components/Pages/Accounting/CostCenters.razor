@@ -1,0 +1,90 @@
+@page "/accounting/reports/cost-centers"
+@layout BlazorApp1.Components.Layout.AccountingLayout
+@using BlazorApp1.Services
+@inject IAccountingDataService AccountingDataService
+
+<PageTitle>مراكز التكلفة - النظام المحاسبي</PageTitle>
+<div class="page-content" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h3 class="page-title mb-0"><i class="bi bi-diagram-3"></i> مراكز التكلفة</h3>
+        <div class="page-toolbar-actions"><ReportPrintButton Kind="cost-centers" BuildReport="BuildPrintReport" Disabled="@(loading || error is not null)" /></div>
+    </div>
+    <div class="card mb-3"><div class="card-body">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-3"><label class="form-label" for="center-level">نوع المركز</label>
+                <select id="center-level" class="form-select" @bind="level" @bind:after="ChangeLevel" disabled="@loading">
+                    <option value="1">مركز 1</option><option value="2">مركز 2</option><option value="3">المركز الفرعي</option>
+                </select>
+            </div>
+            <div class="col-md-3"><label class="form-label" for="center-id">المركز</label>
+                <select id="center-id" class="form-select" @bind="centerId" @bind:after="LoadRows" disabled="@loading">
+                    <option value="">جميع المراكز المرتبطة</option>
+                    @foreach (var center in centers) { <option value="@center.Id">@center.Id - @center.Name</option> }
+                </select>
+            </div>
+            <div class="col-md-2"><label class="form-label" for="center-from">من تاريخ</label><input id="center-from" class="form-control" type="date" @bind="fromDate" @bind:after="LoadRows" disabled="@loading" /></div>
+            <div class="col-md-2"><label class="form-label" for="center-to">إلى تاريخ</label><input id="center-to" class="form-control" type="date" @bind="toDate" @bind:after="LoadRows" disabled="@loading" /></div>
+            <div class="col-md-2"><button type="button" class="btn btn-primary" @onclick="LoadRows" disabled="@loading">عرض التقرير</button></div>
+        </div>
+        <p class="text-muted mt-3 mb-0">ضمن الفترة المالية الحالية. مركز 1 ومركز 2 مرتبطان برأس القيد، والمركز الفرعي مرتبط بكل سطر من تفاصيل القيد.</p>
+    </div></div>
+    @if (error is not null) { <div class="alert alert-danger" role="alert">@error</div> }
+    else if (loading) { <div class="alert alert-info" role="status">جاري تحميل مراكز التكلفة...</div> }
+    else
+    {
+        <div class="card"><div class="card-header">سجلات القيود المرتبطة — @rows.Count سطر</div>
+            <div class="table-responsive"><table class="table table-hover align-middle mb-0">
+                <thead><tr><th>المركز</th><th>رقم القيد</th><th>التاريخ</th><th>المصدر</th><th>رقم الحساب</th><th>اسم الحساب</th><th>البيان</th><th>مدين</th><th>دائن</th><th>المستخدم</th></tr></thead>
+                <tbody>
+                    @if (rows.Count == 0) { <tr><td colspan="10" class="text-center py-4">لا توجد قيود مرتبطة بالمركز ضمن الفترة المحددة.</td></tr> }
+                    @foreach (var row in rows)
+                    {
+                        <tr @key="row.TransId"><td>@row.CenterId - @row.CenterName</td><td><a href="@($"/accounting/journal-entry/{row.GLID}")">#@row.GLID</a></td>
+                            <td class="text-nowrap">@row.GLDate?.ToString("yyyy/MM/dd")</td><td>@row.SourceName</td><td>@row.AccountId</td><td>@row.AccountName</td><td>@row.Description</td>
+                            <td class="text-success text-nowrap">@Money(row.Debit)</td><td class="text-danger text-nowrap">@Money(row.Credit)</td><td class="text-nowrap"><bdi>@(string.IsNullOrWhiteSpace(row.Info) ? "-" : row.Info)</bdi></td></tr>
+                    }
+                </tbody>
+                <tfoot><tr><th colspan="7">الإجمالي</th><th class="text-nowrap">@Money(rows.Sum(r => r.Debit))</th><th class="text-nowrap">@Money(rows.Sum(r => r.Credit))</th><td></td></tr></tfoot>
+            </table></div>
+        </div>
+    }
+</div>
+
+@code {
+    private int level = 1;
+    private PrintReport BuildPrintReport() => new() { Title = "مراكز التكلفة", Landscape = true,
+        Description = $"مستوى المركز: {level} | من {fromDate:yyyy/MM/dd} إلى {toDate:yyyy/MM/dd}",
+        Tables = [new PrintTable { Columns = ["المركز", "رقم القيد", "التاريخ", "المصدر", "رقم الحساب", "اسم الحساب", "البيان", "مدين", "دائن", "المستخدم"],
+            Rows = rows.Select(r => new string?[] { $"{r.CenterId} - {r.CenterName}", r.GLID.ToString(), r.GLDate?.ToString("yyyy/MM/dd"), r.SourceName, r.AccountId.ToString(), r.AccountName, r.Description, Money(r.Debit), Money(r.Credit), r.Info }).ToList(),
+            Totals = ["الإجمالي", "", "", "", "", "", "", Money(rows.Sum(r => r.Debit)), Money(rows.Sum(r => r.Credit)), ""] }] };
+    private int? centerId;
+    private DateTime? fromDate, toDate;
+    private bool loading;
+    private string? error;
+    private IReadOnlyList<CostCenterOptionVm> centers = Array.Empty<CostCenterOptionVm>();
+    private IReadOnlyList<CostCenterLineVm> rows = Array.Empty<CostCenterLineVm>();
+    protected override Task OnInitializedAsync() => ChangeLevel();
+    private async Task ChangeLevel()
+    {
+        centerId = null;
+        centers = Array.Empty<CostCenterOptionVm>();
+        rows = Array.Empty<CostCenterLineVm>();
+        loading = true;
+        error = null;
+        try { centers = await AccountingDataService.GetCostCenterOptionsAsync(level); }
+        catch { error = "تعذر تحميل قائمة مراكز التكلفة. حاول مرة أخرى."; }
+        finally { loading = false; }
+        if (error is null) await LoadRows();
+    }
+    private async Task LoadRows()
+    {
+        error = null;
+        rows = Array.Empty<CostCenterLineVm>();
+        if (fromDate > toDate) { error = "تاريخ البداية يجب ألا يتجاوز تاريخ النهاية."; return; }
+        loading = true;
+        try { rows = await AccountingDataService.GetCostCenterReportAsync(level, centerId, fromDate, toDate); }
+        catch { error = "تعذر تحميل تقرير مراكز التكلفة. حاول مرة أخرى."; }
+        finally { loading = false; }
+    }
+    private static string Money(decimal value) => value.ToString("N2");
+}

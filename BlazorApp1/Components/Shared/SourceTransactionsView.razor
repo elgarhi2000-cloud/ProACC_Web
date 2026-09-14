@@ -1,0 +1,455 @@
+@using BlazorApp1.Services
+@inject IAccountingDataService AccountingDataService
+@inject NavigationManager Navigation
+
+<div class="page-content" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-4">
+        <h3 class="page-title"><i class="bi @Icon me-2"></i>@Title</h3>
+        <button type="button" class="btn btn-primary" @onclick="CreateEntry">
+            <i class="bi bi-plus-circle me-2"></i>@CreateButtonLabel
+        </button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-danger" role="alert">@errorMessage</div>
+    }
+    else if (isLoading)
+    {
+        <div class="alert alert-info">جاري تحميل @Title...</div>
+    }
+    else
+    {
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h5 class="mb-0">@DetailsTitle</h5>
+                <div class="records-toolbar d-flex align-items-center gap-2">
+                    <label class="records-label mb-0" for="@($"recordsCount-{SourceId}")">عدد السجلات:</label>
+                    <select id="@($"recordsCount-{SourceId}")" class="form-select form-select-sm records-select" @bind="selectedTake">
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                        <option value="200">200</option>
+                        <option value="0">جميع السجلات</option>
+                    </select>
+                    <button class="btn btn-sm records-refresh-btn" @onclick="LoadRowsAsync">
+                        <i class="bi bi-arrow-repeat"></i>
+                        <span>تحديث العرض</span>
+                    </button>
+                    <span class="badge records-count-badge">@filteredRows.Count قيد</span>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="section-search-bar">
+                    <input aria-label="ابحث في رقم القيد، المصدر، العميل أو الوصف" type="search" class="form-control section-search-input" value="@searchText" @oninput="OnSearchInput" placeholder="ابحث في رقم القيد، المصدر، العميل أو الوصف" />
+                    <button class="btn section-search-btn" @onclick="ApplySearch">
+                        <i class="bi bi-search me-1"></i>بحث
+                    </button>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle source-transactions-table">
+                        <thead>
+                        <tr>
+                            <th scope="col" class="text-center">#</th>
+                            @SortableHeader("GLID", "رقم القيد")
+                            @SortableHeader("SanadID", DocumentSequenceLabel)
+                            @SortableHeader("SerialNo", "تسلسل القيد")
+                            @SortableHeader("Date", "التاريخ")
+                            @SortableHeader("SourceName", "المصدر")
+                            @SortableHeader("CardName", "جهة التعامل")
+                            @SortableHeader("Description", "الوصف")
+                            @SortableHeader("Debit", "مدين")
+                            @SortableHeader("Credit", "دائن")
+                            <th class="actions-heading"><span class="actions-heading-label">إجراءات</span></th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        @if (filteredRows.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="11" class="text-center text-muted py-5">لا توجد قيود مطابقة.</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @for (var index = 0; index < filteredRows.Count; index++)
+                            {
+                                var item = filteredRows[index];
+                                <tr>
+                                    <td class="text-center">@(index + 1)</td>
+                                    <td>#@item.GLID</td>
+                                    <td>@(item.SanadID?.ToString() ?? "-")</td>
+                                    <td>@(item.SerialNo?.ToString() ?? "-")</td>
+                                    <td class="text-nowrap">@(item.Date?.ToString("yyyy/MM/dd") ?? "-")</td>
+                                    <td>@EmptyAsDash(item.SourceName)</td>
+                                    <td class="account-party-cell"><strong>@EmptyAsDash(item.CardName)</strong></td>
+                                    <td class="description-cell">@EmptyAsDash(item.Description)</td>
+                                    <td class="text-success fw-semibold text-nowrap">@FormatCurrency(item.Debit)</td>
+                                    <td class="text-danger fw-semibold text-nowrap">@FormatCurrency(item.Credit)</td>
+                                    <td>
+                                        <div class="entry-actions" role="group" aria-label="إجراءات القيد">
+                                            <button type="button" class="action-btn action-edit" title="تعديل القيد" aria-label="تعديل القيد" @onclick="() => EditEntry(item.GLID)">
+                                                <i class="bi bi-pencil-square" aria-hidden="true"></i>
+                                            </button>
+                                            <JournalEntryPrintButton EntryId="item.GLID" DesignKind="@PrintDesignKind" />
+                                            <JournalEntryPdfButton EntryId="item.GLID" DesignKind="@PrintDesignKind" />
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                        </tbody>
+                        <tfoot>
+                        <tr class="table-light fw-bold">
+                            <td colspan="8" class="text-end">إجمالي القيود المعروضة</td>
+                            <td class="text-success text-nowrap">@FormatCurrency(filteredRows.Sum(x => x.Debit))</td>
+                            <td class="text-danger text-nowrap">@FormatCurrency(filteredRows.Sum(x => x.Credit))</td>
+                            <td></td>
+                        </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .records-toolbar {
+        color: #fff;
+        font-weight: 600;
+        flex-wrap: nowrap;
+        background: rgba(255, 255, 255, .08);
+        border: 1px solid rgba(255, 255, 255, .18);
+        border-radius: 14px;
+        padding: 8px 10px;
+    }
+
+    .records-label {
+        color: #fff;
+        font-size: 1.02rem;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    .records-select {
+        min-width: 150px;
+        height: 44px;
+        padding-inline: 18px;
+        color: #2d3748;
+        background: #fff;
+        border: 1px solid #d6ddff;
+        border-radius: 12px;
+        font-size: 1.05rem;
+        font-weight: 700;
+    }
+
+    .records-refresh-btn {
+        height: 44px;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 0 1rem;
+        color: #3f51b5;
+        background: #fff;
+        border: 1px solid #d6ddff;
+        border-radius: 12px;
+        box-shadow: 0 4px 10px rgba(32, 61, 162, .12);
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    .records-count-badge {
+        height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 1rem;
+        color: #fff;
+        background: rgba(255, 255, 255, .24);
+        border-radius: 999px;
+        font-size: 1rem;
+        font-weight: 800;
+        white-space: nowrap;
+    }
+
+    .sort-header {
+        width: 100%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 7px;
+        padding: .7rem .25rem;
+        color: inherit;
+        background: transparent;
+        border: 0;
+        border-radius: 8px;
+        font: inherit;
+        font-weight: 700;
+        white-space: nowrap;
+        cursor: pointer;
+    }
+
+    .sort-header i {
+        min-width: 16px;
+        color: #94a3b8;
+        font-size: .82rem;
+    }
+
+    .sort-header:hover,
+    .sort-header.active {
+        color: #4338ca;
+        background: rgba(79, 70, 229, .1);
+    }
+
+    .sort-header:hover i,
+    .sort-header.active i {
+        color: #4f46e5;
+    }
+
+    .sort-header:focus-visible {
+        outline: 3px solid rgba(79, 70, 229, .2);
+        outline-offset: 2px;
+    }
+
+    .actions-heading-label {
+        display: inline-flex;
+        padding: .7rem .25rem;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    .entry-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+    }
+
+    .action-btn {
+        --action-color: #475569;
+        --action-bg: #f1f5f9;
+        width: 38px;
+        min-width: 38px;
+        height: 38px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        color: var(--action-color);
+        background: transparent;
+        border: 0;
+        border-radius: 10px;
+        cursor: pointer;
+    }
+
+    .action-edit { --action-color: #4f46e5; --action-bg: #eef2ff; }
+    .action-print { --action-color: #475569; --action-bg: #f1f5f9; }
+
+    .action-btn:hover:not(:disabled) {
+        color: var(--action-color);
+        background: var(--action-bg);
+        box-shadow: 0 5px 12px rgba(15, 23, 42, .08);
+        transform: translateY(-2px);
+    }
+
+    .action-btn:disabled {
+        opacity: .4;
+        cursor: not-allowed;
+    }
+
+    .account-party-cell {
+        min-width: 175px;
+    }
+
+    .account-party-cell strong,
+    .account-party-cell small,
+    .account-party-cell span {
+        display: block;
+    }
+
+    .account-party-cell small {
+        color: #64748b;
+        direction: ltr;
+        text-align: right;
+    }
+
+    .account-party-cell span {
+        margin-top: 2px;
+        color: #475569;
+        font-size: .76rem;
+    }
+
+    .description-cell {
+        min-width: 180px;
+        max-width: 340px;
+    }
+
+    @@media (max-width: 992px) {
+        .records-toolbar {
+            width: 100%;
+            flex-wrap: wrap;
+        }
+
+        .records-count-badge {
+            margin-inline-start: auto;
+        }
+    }
+</style>
+
+@code {
+    private string PrintDesignKind => SourceId switch { 2 => "receipt", 3 => "payment", 5 => "sales", 6 => "purchase", _ => "journal" };
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string DetailsTitle { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public int SourceId { get; set; }
+    [Parameter] public string Icon { get; set; } = "bi-table";
+    [Parameter, EditorRequired] public string CreateButtonLabel { get; set; } = "إضافة سجل جديد";
+    [Parameter, EditorRequired] public string ReturnUrl { get; set; } = "/accounting/journal-entries";
+
+    private List<JournalEntryVm> rows = new();
+    private List<JournalEntryVm> filteredRows = new();
+    private bool isLoading = true;
+    private string? errorMessage;
+    private int selectedTake = 100;
+    private string searchText = string.Empty;
+    private string sortColumn = string.Empty;
+    private bool sortAscending = true;
+    private string DocumentSequenceLabel => SourceId is 5 or 6 ? "رقم الفاتورة" : "رقم السند";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadRowsAsync();
+    }
+
+    private async Task LoadRowsAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            rows = (await AccountingDataService.GetJournalEntriesBySourceAsync(SourceId, selectedTake)).ToList();
+            ApplySearch();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex); errorMessage = $"تعذر تحميل {Title}؛ حاول مرة أخرى أو راجع مسؤول النظام.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ApplySearch()
+    {
+        if (string.IsNullOrWhiteSpace(searchText))
+        {
+            filteredRows = rows.ToList();
+        }
+        else
+        {
+            var term = searchText.Trim();
+            filteredRows = rows.Where(x =>
+                    x.GLID.ToString().Contains(term, StringComparison.OrdinalIgnoreCase)
+                    || (x.SanadID?.ToString().Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
+                    || (x.SerialNo?.ToString().Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
+                    || x.SourceName.Contains(term, StringComparison.OrdinalIgnoreCase)
+                    || x.CardName.Contains(term, StringComparison.OrdinalIgnoreCase)
+                    || x.Description.Contains(term, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+
+        ApplySort();
+    }
+
+    private void OnSearchInput(ChangeEventArgs e)
+    {
+        searchText = e.Value?.ToString() ?? string.Empty;
+        ApplySearch();
+    }
+
+    private void SortBy(string column)
+    {
+        if (sortColumn == column)
+        {
+            sortAscending = !sortAscending;
+        }
+        else
+        {
+            sortColumn = column;
+            sortAscending = true;
+        }
+
+        ApplySort();
+    }
+
+    private void ApplySort()
+    {
+        filteredRows = (sortColumn, sortAscending) switch
+        {
+            ("GLID", true) => filteredRows.OrderBy(x => x.GLID).ToList(),
+            ("GLID", false) => filteredRows.OrderByDescending(x => x.GLID).ToList(),
+            ("SanadID", true) => filteredRows.OrderBy(x => x.SanadID).ToList(),
+            ("SanadID", false) => filteredRows.OrderByDescending(x => x.SanadID).ToList(),
+            ("SerialNo", true) => filteredRows.OrderBy(x => x.SerialNo).ToList(),
+            ("SerialNo", false) => filteredRows.OrderByDescending(x => x.SerialNo).ToList(),
+            ("Date", true) => filteredRows.OrderBy(x => x.Date).ToList(),
+            ("Date", false) => filteredRows.OrderByDescending(x => x.Date).ToList(),
+            ("SourceName", true) => filteredRows.OrderBy(x => x.SourceName, StringComparer.CurrentCultureIgnoreCase).ToList(),
+            ("SourceName", false) => filteredRows.OrderByDescending(x => x.SourceName, StringComparer.CurrentCultureIgnoreCase).ToList(),
+            ("CardName", true) => filteredRows.OrderBy(x => x.CardName, StringComparer.CurrentCultureIgnoreCase).ToList(),
+            ("CardName", false) => filteredRows.OrderByDescending(x => x.CardName, StringComparer.CurrentCultureIgnoreCase).ToList(),
+            ("Description", true) => filteredRows.OrderBy(x => x.Description, StringComparer.CurrentCultureIgnoreCase).ToList(),
+            ("Description", false) => filteredRows.OrderByDescending(x => x.Description, StringComparer.CurrentCultureIgnoreCase).ToList(),
+            ("Debit", true) => filteredRows.OrderBy(x => x.Debit).ToList(),
+            ("Debit", false) => filteredRows.OrderByDescending(x => x.Debit).ToList(),
+            ("Credit", true) => filteredRows.OrderBy(x => x.Credit).ToList(),
+            ("Credit", false) => filteredRows.OrderByDescending(x => x.Credit).ToList(),
+            _ => filteredRows
+        };
+    }
+
+    private RenderFragment SortableHeader(string column, string label) => builder =>
+    {
+        var sequence = 0;
+        builder.OpenElement(sequence++, "th");
+        builder.AddAttribute(sequence++, "aria-sort", GetAriaSort(column));
+        builder.OpenElement(sequence++, "button");
+        builder.AddAttribute(sequence++, "type", "button");
+        builder.AddAttribute(sequence++, "class", $"sort-header {(sortColumn == column ? "active" : string.Empty)}");
+        builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create(this, () => SortBy(column)));
+        builder.OpenElement(sequence++, "span");
+        builder.AddContent(sequence++, label);
+        builder.CloseElement();
+        builder.OpenElement(sequence++, "i");
+        builder.AddAttribute(sequence++, "class", GetSortIcon(column));
+        builder.AddAttribute(sequence++, "aria-hidden", "true");
+        builder.CloseElement();
+        builder.CloseElement();
+        builder.CloseElement();
+    };
+
+    private string GetSortIcon(string column) => sortColumn == column
+        ? sortAscending ? "bi bi-arrow-up" : "bi bi-arrow-down"
+        : "bi bi-arrow-down-up";
+
+    private string GetAriaSort(string column) => sortColumn == column
+        ? sortAscending ? "ascending" : "descending"
+        : "none";
+
+    private void EditEntry(int glid)
+    {
+        Navigation.NavigateTo($"/accounting/journal-entry/{glid}?sourceId={SourceId}&returnUrl={Uri.EscapeDataString(ReturnUrl)}");
+    }
+
+    private void CreateEntry()
+    {
+        Navigation.NavigateTo($"/accounting/journal-entry/new?sourceId={SourceId}&returnUrl={Uri.EscapeDataString(ReturnUrl)}");
+    }
+
+    private static string EmptyAsDash(string value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+
+    private static string FormatCurrency(decimal value) => value.ToString("N2");
+}

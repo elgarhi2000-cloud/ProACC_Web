@@ -1,0 +1,15 @@
+@page "/access-denied"
+@layout BlazorApp1.Components.Layout.AccountingLayout
+@using BlazorApp1.Services
+@inject IUserAccessService Access
+@inject NavigationManager Navigation
+
+<PageTitle>لا توجد صلاحية</PageTitle>
+<div class="card m-4 p-4 text-center" dir="rtl" role="alert">
+    <h3>لا تملك صلاحية دخول هذا القسم</h3>
+    <p>يمكنك الدخول إلى الأقسام المفعّلة لحسابك من القائمة الجانبية. لتعديل الصلاحيات، تواصل مع مسؤول المستخدمين.</p>
+    @if (SectionAccess.Landing(Access.Has) is var landing && landing != "/access-denied")
+    {
+        <button class="btn btn-primary align-self-center" @onclick="() => Navigation.NavigateTo(landing)">الانتقال إلى قسم متاح</button>
+    }
+</div>

@@ -1,0 +1,9 @@
+@using BlazorApp1.Components.Shared
+<Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
+    <Found Context="routeData">
+        <AuthGuard>
+            <RouteView RouteData="routeData" />
+            <FocusOnNavigate RouteData="routeData" Selector="h1, h2, h3" />
+        </AuthGuard>
+    </Found>
+</Router>

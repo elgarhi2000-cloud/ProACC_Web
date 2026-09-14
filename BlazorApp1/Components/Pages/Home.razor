@@ -1,0 +1,19 @@
+﻿@page "/"
+@using BlazorApp1.Services
+@inject ISessionService SessionService
+@inject NavigationManager NavigationManager
+
+@code {
+    protected override void OnInitialized()
+    {
+        // التحقق من حالة تسجيل الدخول وتوجيه المستخدم
+        if (SessionService.IsAuthenticated)
+        {
+            NavigationManager.NavigateTo("/dashboard");
+        }
+        else
+        {
+            NavigationManager.NavigateTo("/login");
+        }
+    }
+}

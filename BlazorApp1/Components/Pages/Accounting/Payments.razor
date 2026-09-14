@@ -1,0 +1,12 @@
+@page "/accounting/payments"
+@layout BlazorApp1.Components.Layout.AccountingLayout
+@using BlazorApp1.Components.Shared
+
+<PageTitle>سندات الصرف - النظام المحاسبي</PageTitle>
+
+<SourceTransactionsView Title="سندات الصرف"
+                        DetailsTitle="تفاصيل حركات سندات الصرف"
+                        SourceId="3"
+                        CreateButtonLabel="إضافة سند صرف"
+                        ReturnUrl="/accounting/payments"
+                        Icon="bi-cash-coin" />

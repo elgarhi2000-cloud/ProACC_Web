@@ -1,0 +1,440 @@
+@page "/login"
+@layout BlazorApp1.Components.Layout.EmptyLayout
+@using BlazorApp1.Data.ProAcc
+@using BlazorApp1.Services
+@using BlazorApp1.Models
+@using Microsoft.EntityFrameworkCore
+@inject ICustomAuthService AuthService
+@inject ISessionService SessionService
+@inject ICompanyDatabaseService CompanyDatabaseService
+@inject IProAccDbContextAccessor DbContextAccessor
+@inject NavigationManager NavigationManager
+
+<PageTitle>تسجيل الدخول - النظام المحاسبي</PageTitle>
+
+<div class="login-container">
+    <div class="login-card">
+        <div class="text-center mb-4">
+            <div class="login-brand mb-3">
+                <img class="login-logo" src="/images/proacc-logo.png" alt="شعار ProACC" />
+                <div class="login-brand-copy">
+                    <h2 class="mb-0">ProACC</h2>
+                    <div class="brand-subtitle">النظام المحاسبي</div>
+                </div>
+            </div>
+            <p class="login-company-name" title="@companyName">@(credentialsVerified ? companyName : "دخول آمن إلى منشأتك")</p>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(loadErrorMessage))
+        {
+            <div class="alert alert-danger" role="alert">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>@loadErrorMessage
+            </div>
+        }
+
+        <EditForm Model="@loginModel" OnValidSubmit="@HandleLogin">
+            <DataAnnotationsValidator />
+
+            <div class="mb-3">
+                <label for="companyCode" class="form-label">رمز المنشأة</label>
+                <InputText id="companyCode" class="form-control form-control-lg" type="password"
+                           @bind-Value="companyLoginCode" placeholder="أدخل رمز المنشأة"
+                           disabled="@(isLoading || credentialsVerified)" autocomplete="organization" />
+            </div>
+
+            <div class="mb-3">
+                <label for="username" class="form-label">اسم المستخدم</label>
+                <InputText id="username" class="form-control form-control-lg" @bind-Value="loginModel.UserName"
+                           placeholder="أدخل اسم المستخدم" disabled="@(isLoading || credentialsVerified)" />
+                <ValidationMessage For="@(() => loginModel.UserName)" />
+            </div>
+
+            <div class="mb-3">
+                <label for="password" class="form-label">كلمة المرور</label>
+                <InputText id="password" type="password" class="form-control form-control-lg" @bind-Value="loginModel.UserPass"
+                           placeholder="أدخل كلمة المرور" disabled="@(isLoading || credentialsVerified)" />
+                <ValidationMessage For="@(() => loginModel.UserPass)" />
+            </div>
+
+            @if (credentialsVerified)
+            {
+                <div class="company-period-box mb-4">
+                    <div>
+                        <label for="periodId" class="form-label">الفترة المالية</label>
+                        <InputSelect id="periodId" class="form-select form-control-lg" @bind-Value="selectedPeriodId" disabled="@isLoading">
+                            <option value="">-- اختر الفترة المالية --</option>
+                            @foreach (var period in periods)
+                            {
+                                <option value="@period.PeriodID">@period.PeriodName</option>
+                            }
+                        </InputSelect>
+                    </div>
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="alert alert-danger" role="alert">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>@errorMessage
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(successMessage))
+            {
+                <div class="alert alert-success mb-3" role="alert">
+                    <i class="bi bi-check-circle-fill me-2"></i>@successMessage
+                </div>
+            }
+
+            <div class="d-grid mb-3">
+                <button type="submit" class="btn btn-primary btn-lg" disabled="@isLoading">
+                    @if (isLoading)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                        <span>جاري التحقق...</span>
+                    }
+                    else
+                    {
+                        <span><i class="bi bi-box-arrow-in-right me-2"></i>@(credentialsVerified ? "الدخول إلى المنشأة" : "تحقق ومتابعة")</span>
+                    }
+                </button>
+            </div>
+
+            <div class="login-copyright text-center">
+                جميع الحقوق محفوظة 2026 © Elgarhi2000@gmail.com
+            </div>
+        </EditForm>
+    </div>
+</div>
+
+<style>
+    .login-container {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background:
+            radial-gradient(circle at 12% 12%, rgba(91, 75, 219, .08), transparent 30%),
+            radial-gradient(circle at 88% 88%, rgba(73, 59, 185, .05), transparent 28%),
+            linear-gradient(135deg, var(--q-page) 0%, #eceef2 100%);
+        padding: 20px;
+        direction: rtl;
+    }
+
+    .login-card {
+        background: white;
+        border: 1px solid #e1e4e9;
+        border-radius: 14px;
+        padding: 38px 34px;
+        box-shadow: 0 18px 48px rgba(31, 41, 55, .1);
+        max-width: 460px;
+        width: 100%;
+        animation: slideIn 0.5s ease-out;
+    }
+
+    @@keyframes slideIn {
+        from {
+            opacity: 0;
+            transform: translateY(-30px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .login-card h2 {
+        color: var(--q-ink);
+        font-weight: 800;
+        font-size: 1.75rem;
+    }
+
+    .login-brand {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 15px;
+        direction: rtl;
+        text-align: right;
+    }
+
+    .login-logo {
+        width: 68px;
+        height: 68px;
+        flex: 0 0 68px;
+        display: block;
+        object-fit: contain;
+    }
+
+    .login-brand-copy {
+        min-width: 0;
+        padding-right: 18px;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: center;
+        border-right: 1px solid #e5e7eb;
+    }
+
+    .brand-subtitle {
+        color: #6b7280;
+        font-weight: 600;
+        font-size: 0.92rem;
+        margin-top: 3px;
+        margin-bottom: 0;
+    }
+
+    .company-period-box {
+        border: 1px solid #e1e4e9;
+        background: #f7f8fa;
+        border-radius: 9px;
+        padding: 11px;
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .login-company-name {
+        width: 100%;
+        margin: 0;
+        overflow: hidden;
+        color: #4a5568;
+        font-size: clamp(.7rem, 2.45vw, 1rem);
+        font-weight: 700;
+        line-height: 1.6;
+        text-align: center;
+        text-overflow: clip;
+        white-space: nowrap;
+    }
+
+    .form-label {
+        font-weight: 600;
+        color: #2c3e50;
+        margin-bottom: 5px;
+    }
+
+    .form-control {
+        border-radius: 7px;
+        border: 1px solid #d8dce3;
+        transition: border-color .16s ease, box-shadow .16s ease;
+    }
+
+        .form-control:focus {
+            border-color: #8d82e5;
+            box-shadow: 0 0 0 3px rgba(91, 75, 219, .12);
+        }
+
+        .form-control::placeholder {
+            color: #adb5bd;
+        }
+
+    .login-card .form-select {
+        background-position: left 0.85rem center;
+        padding-right: 0.75rem;
+        padding-left: 2.75rem;
+    }
+
+    .btn-primary {
+        background: var(--q-primary);
+        border: none;
+        padding: 10px 14px;
+        font-weight: 750;
+        border-radius: 7px;
+        font-size: .9rem;
+        transition: background-color .16s ease, transform .12s ease;
+    }
+
+        .btn-primary:hover:not(:disabled) {
+            background: var(--q-primary-dark);
+            transform: translateY(-1px);
+            box-shadow: 0 7px 18px rgba(91, 75, 219, .22);
+        }
+
+        .btn-primary:active:not(:disabled) {
+            transform: translateY(-1px);
+        }
+
+    .alert {
+        border-radius: 10px;
+        border: none;
+        display: flex;
+        align-items: center;
+        animation: fadeIn 0.3s;
+    }
+
+    @@keyframes fadeIn {
+        from {
+            opacity: 0;
+        }
+
+        to {
+            opacity: 1;
+        }
+    }
+
+    .alert-danger {
+        background-color: #fee;
+        color: #dc3545;
+    }
+
+    .alert-success {
+        background-color: #d4edda;
+        color: #155724;
+    }
+
+    .login-copyright {
+        margin-top: 10px;
+        color: #6b7280;
+        font-size: 0.82rem;
+        font-weight: 600;
+        line-height: 1.6;
+    }
+
+    /* تحسينات للموبايل */
+    @@media (max-width: 576px) {
+        .login-card {
+            padding: 30px 25px;
+        }
+
+        .login-brand { gap: 13px; }
+
+        .login-logo {
+            width: 62px;
+            height: 62px;
+            flex-basis: 62px;
+        }
+
+        .login-brand-copy { padding-right: 13px; }
+
+        .login-card h2 { font-size: 1.5rem; }
+        .brand-subtitle { font-size: .82rem; }
+        .company-period-box { grid-template-columns: 1fr; }
+    }
+</style>
+
+@code {
+    private User loginModel = CreateDefaultLoginModel();
+    private List<PeriodEntity> periods = new();
+    private const string DefaultCompanyLoginCode = "Elg@1981";
+    private string companyLoginCode = DefaultCompanyLoginCode;
+    private string selectedDatabaseKey = string.Empty;
+    private int? selectedPeriodId;
+    private string companyName = string.Empty;
+    private string loadErrorMessage = string.Empty;
+    private string errorMessage = string.Empty;
+    private string successMessage = string.Empty;
+    private bool isLoading = false;
+    private bool credentialsVerified;
+    private int failedAttempts;
+    private DateTimeOffset? lockedUntil;
+
+    private static User CreateDefaultLoginModel() => new()
+    {
+        UserName = "admin",
+        UserPass = "123"
+    };
+
+    private async Task HandleLogin()
+    {
+        errorMessage = string.Empty;
+        successMessage = string.Empty;
+
+        if (lockedUntil > DateTimeOffset.Now)
+        {
+            errorMessage = "تم إيقاف المحاولات مؤقتًا. حاول مرة أخرى بعد قليل.";
+            return;
+        }
+
+        if (!credentialsVerified && string.IsNullOrWhiteSpace(companyLoginCode))
+        {
+            errorMessage = "الرجاء إدخال رمز المنشأة وبيانات الدخول.";
+            return;
+        }
+
+        isLoading = true;
+
+        try
+        {
+            if (!credentialsVerified)
+            {
+                var selectedDatabase = CompanyDatabaseService.FindByLoginCode(companyLoginCode);
+                if (selectedDatabase is null)
+                {
+                    await RegisterFailedAttemptAsync();
+                    return;
+                }
+
+                selectedDatabaseKey = selectedDatabase.Key;
+                await SessionService.SelectDatabaseAsync(selectedDatabase.Key, selectedDatabase.DatabaseName);
+                var isValid = await AuthService.ValidateUserAsync(loginModel.UserName, loginModel.UserPass);
+                if (!isValid)
+                {
+                    await RegisterFailedAttemptAsync();
+                    return;
+                }
+
+                var dbContext = DbContextAccessor.Context;
+                companyName = await dbContext.Companies
+                    .AsNoTracking()
+                    .OrderBy(c => c.CompID)
+                    .Select(c => c.Comp ?? string.Empty)
+                    .FirstOrDefaultAsync() ?? selectedDatabase.DisplayName;
+                periods = await dbContext.Periods
+                    .AsNoTracking()
+                    .OrderByDescending(p => p.PeriodID)
+                    .ToListAsync();
+                selectedPeriodId = periods.FirstOrDefault()?.PeriodID;
+
+                if (periods.Count == 0)
+                {
+                    loadErrorMessage = "لا توجد فترات مالية متاحة لهذه المنشأة.";
+                    return;
+                }
+
+                failedAttempts = 0;
+                credentialsVerified = true;
+                successMessage = "تم التحقق بنجاح. اختر الفترة المالية للمتابعة.";
+                return;
+            }
+
+            if (!selectedPeriodId.HasValue)
+            {
+                errorMessage = "الرجاء اختيار الفترة المالية قبل الدخول.";
+                return;
+            }
+
+            var selectedPeriod = periods.FirstOrDefault(p => p.PeriodID == selectedPeriodId.Value);
+            await SessionService.LoginAsync(
+                loginModel.UserName,
+                selectedPeriodId,
+                selectedPeriod?.PeriodName,
+                companyName);
+            loginModel.UserPass = string.Empty;
+            companyLoginCode = string.Empty;
+            NavigationManager.NavigateTo("/");
+        }
+        catch
+        {
+            errorMessage = "تعذر إكمال تسجيل الدخول. تحقق من البيانات وحاول مرة أخرى.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task RegisterFailedAttemptAsync()
+    {
+        failedAttempts++;
+        errorMessage = "رمز المنشأة أو اسم المستخدم أو كلمة المرور غير صحيحة.";
+        await Task.Delay(400);
+        if (failedAttempts >= 5)
+        {
+            lockedUntil = DateTimeOffset.Now.AddSeconds(30);
+            failedAttempts = 0;
+            errorMessage = "تم إيقاف المحاولات لمدة 30 ثانية.";
+        }
+    }
+
+}

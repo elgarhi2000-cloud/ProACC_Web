@@ -1,0 +1,595 @@
+﻿@using BlazorApp1.Services
+@inject IAccountingDataService AccountingDataService
+
+<div class="page-content financial-statement-page" dir="rtl">
+    <div class="financial-heading mb-4">
+        <div>
+            <h3 class="mb-1"><i class="bi @Icon me-2"></i>@Title</h3>
+            <p class="text-muted mb-0">@Subtitle</p>
+        </div>
+        @if (statement is not null)
+        {
+            <div class="page-toolbar-actions">
+            <span class="badge bg-primary financial-account-count">@visibleAccountsCount حساب</span>
+            <ReportPrintButton Kind="@(IsBalanceStatement ? "financial-position" : "income-statement")" BuildReport="BuildPrintReport" Disabled="@isLoading" />
+            </div>
+        }
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-danger" role="alert">@errorMessage</div>
+    }
+
+    <div class="card border-0 shadow-sm financial-filter-card mb-4">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-lg-5">
+                    <label class="form-label" for="@($"accountSearch-{DirectionName}")">البحث عن الحساب</label>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <input id="@($"accountSearch-{DirectionName}")" class="form-control" value="@accountSearchText" @oninput="OnAccountSearchInput" placeholder="رقم الحساب أو اسم الحساب" />
+                        @if (!string.IsNullOrWhiteSpace(accountSearchText))
+                        {
+                            <button type="button" class="btn btn-outline-secondary" @onclick="ClearAccountSearch" title="مسح البحث" aria-label="مسح البحث">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                        }
+                    </div>
+                </div>
+                <div class="col-sm-6 col-lg-2">
+                    <label class="form-label" for="@($"fromDate-{DirectionName}")">من تاريخ</label>
+                    <input id="@($"fromDate-{DirectionName}")" class="form-control" type="date" @bind="fromDate" />
+                </div>
+                <div class="col-sm-6 col-lg-2">
+                    <label class="form-label" for="@($"toDate-{DirectionName}")">إلى تاريخ</label>
+                    <input id="@($"toDate-{DirectionName}")" class="form-control" type="date" @bind="toDate" />
+                </div>
+                <div class="col-lg-3 d-flex gap-2">
+                    <button type="button" class="btn btn-primary flex-grow-1" @onclick="LoadStatementAsync" disabled="@isLoading">
+                        <i class="bi bi-funnel me-1"></i>تطبيق
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" @onclick="ResetDatesAsync" disabled="@isLoading" title="إعادة تعيين الفترة" aria-label="إعادة تعيين الفترة">
+                        <i class="bi bi-arrow-counterclockwise"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="alert alert-info">جاري تحميل @Title...</div>
+    }
+    else if (statement is not null)
+    {
+        <div class="row g-3 mb-4">
+            @if (IsBalanceStatement)
+            {
+                <div class="col-sm-6 col-xl-3">
+                    <div class="balance-difference-card @(statement.BalanceDifference == 0m ? "balanced" : "unbalanced")">
+                        <div class="income-result-icon">
+                            <i class="bi @(statement.BalanceDifference == 0m ? "bi-check-circle" : "bi-exclamation-triangle")"></i>
+                        </div>
+                        <div>
+                            <span>فرق الأصول عن الخصوم وحقوق الملكية</span>
+                            <strong>@FormatBalance(statement.BalanceDifference)</strong>
+                        </div>
+                    </div>
+                </div>
+            }
+            @if (IsIncomeStatement)
+            {
+                <div class="col-sm-6 col-xl-3">
+                    <div class="income-result-card @(statement.NetResult >= 0 ? "profit" : "loss")">
+                        <div class="income-result-icon">
+                            <i class="bi @(statement.NetResult >= 0 ? "bi-graph-up-arrow" : "bi-graph-down-arrow")"></i>
+                        </div>
+                        <div>
+                            <span>صافي @(statement.NetResult >= 0 ? "الربح" : "الخسارة")</span>
+                            <strong>@FormatBalance(Math.Abs(statement.NetResult))</strong>
+                        </div>
+                    </div>
+                </div>
+            }
+            @foreach (var root in statement.Nodes)
+            {
+                <div class="col-sm-6 col-xl-3">
+                    <div class="financial-total-card">
+                        <span>@root.Name</span>
+                        <strong class="@(root.NetBalance < 0 ? "text-danger" : "")">@FormatBalance(root.NetBalance)</strong>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="card border-0 shadow-sm financial-tree-card">
+            <div class="card-header bg-transparent financial-tree-header">
+                <div>
+                    <h5 class="mb-1">تفاصيل @Title</h5>
+                    <small class="text-muted">عرض هرمي للمستويات الستة — صافي الرصيد فقط</small>
+                </div>
+                <strong>صافي الرصيد</strong>
+            </div>
+            <div class="card-body p-0">
+                @if (visibleNodes.Count == 0)
+                {
+                    <div class="financial-empty">
+                        <i class="bi bi-inbox"></i>
+                        <span>@(string.IsNullOrWhiteSpace(accountSearchText) ? "لا توجد أرصدة خلال الفترة المحددة." : "لا توجد حسابات مطابقة للبحث.")</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="financial-tree">
+                        @foreach (var node in visibleNodes)
+                        {
+                            <FinancialStatementTreeNode Node="node" />
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .financial-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+    }
+
+    .financial-account-count {
+        padding: 9px 14px;
+        border-radius: 999px;
+    }
+
+    .financial-filter-card,
+    .financial-tree-card {
+        border-radius: 16px;
+    }
+
+    .financial-filter-card .form-label {
+        color: #475569;
+        font-size: .85rem;
+        font-weight: 700;
+    }
+
+    .financial-total-card {
+        min-height: 100px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 8px;
+        padding: 17px;
+        background: linear-gradient(145deg, #fff, #f8fafc);
+        border: 1px solid #e2e8f0;
+        border-right: 5px solid #2563eb;
+        border-radius: 14px;
+        box-shadow: 0 5px 18px rgba(15, 23, 42, .05);
+    }
+
+    .financial-total-card span {
+        color: #64748b;
+        font-size: .83rem;
+        font-weight: 700;
+    }
+
+    .financial-total-card strong {
+        color: #0f172a;
+        font-size: 1.08rem;
+    }
+
+    .income-result-card {
+        min-height: 100px;
+        display: flex;
+        align-items: center;
+        gap: 13px;
+        padding: 17px;
+        color: #fff;
+        border-radius: 14px;
+        box-shadow: 0 8px 22px rgba(15, 23, 42, .14);
+    }
+
+    .income-result-card.profit {
+        background: linear-gradient(135deg, #16a34a, #059669);
+    }
+
+    .income-result-card.loss {
+        background: linear-gradient(135deg, #dc2626, #e11d48);
+    }
+
+    .income-result-icon {
+        width: 42px;
+        height: 42px;
+        flex: 0 0 42px;
+        display: grid;
+        place-items: center;
+        background: rgba(255, 255, 255, .17);
+        border-radius: 12px;
+        font-size: 1.25rem;
+    }
+
+    .income-result-card span,
+    .income-result-card strong {
+        display: block;
+    }
+
+    .income-result-card span {
+        margin-bottom: 5px;
+        font-size: .84rem;
+        font-weight: 700;
+        opacity: .9;
+    }
+
+    .income-result-card strong {
+        font-size: 1.12rem;
+    }
+
+    .balance-difference-card {
+        min-height: 100px;
+        display: flex;
+        align-items: center;
+        gap: 13px;
+        padding: 17px;
+        color: #fff;
+        border-radius: 14px;
+        box-shadow: 0 8px 22px rgba(15, 23, 42, .14);
+    }
+
+    .balance-difference-card.balanced {
+        background: linear-gradient(135deg, #0f766e, #059669);
+    }
+
+    .balance-difference-card.unbalanced {
+        background: linear-gradient(135deg, #d97706, #ea580c);
+    }
+
+    .balance-difference-card span,
+    .balance-difference-card strong {
+        display: block;
+    }
+
+    .balance-difference-card span {
+        margin-bottom: 5px;
+        font-size: .78rem;
+        font-weight: 700;
+        line-height: 1.35;
+        opacity: .92;
+    }
+
+    .balance-difference-card strong {
+        font-size: 1.08rem;
+    }
+
+    .financial-tree-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 15px;
+        padding: 17px 20px;
+        border-bottom: 1px solid #e5e7eb;
+    }
+
+    .financial-tree {
+        padding: 8px 0;
+    }
+
+    .financial-tree-branch > summary {
+        list-style: none;
+        cursor: pointer;
+    }
+
+    .financial-tree-branch > summary::-webkit-details-marker {
+        display: none;
+    }
+
+    .financial-tree-row {
+        min-height: 49px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        padding: 8px 20px;
+        border-bottom: 1px solid #f1f5f9;
+    }
+
+    .financial-tree-children {
+        padding-right: 18px;
+    }
+
+    .financial-tree-row:hover {
+        background: #f8fafc;
+    }
+
+    .financial-node-info {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+    }
+
+    .financial-tree-arrow {
+        color: #64748b;
+        font-size: .72rem;
+        transition: transform .15s ease;
+    }
+
+    .financial-tree-branch[open] > summary .financial-tree-arrow {
+        transform: rotate(-90deg);
+    }
+
+    .financial-level-badge {
+        min-width: 84px;
+        padding: 3px 7px;
+        color: #475569;
+        text-align: center;
+        background: #f1f5f9;
+        border-radius: 999px;
+        font-size: .68rem;
+        font-weight: 700;
+    }
+
+    .financial-node-code {
+        color: #2563eb;
+        font-size: .76rem;
+        font-weight: 800;
+        direction: ltr;
+    }
+
+    .financial-node-name {
+        color: #0f172a;
+        font-weight: 700;
+        overflow-wrap: anywhere;
+    }
+
+    .financial-node-balance {
+        flex: 0 0 auto;
+        color: #0f766e;
+        white-space: nowrap;
+    }
+
+    .financial-node-balance.negative {
+        color: #dc2626;
+    }
+
+    .financial-tree-branch.level-1 > summary {
+        background: #eff6ff;
+    }
+
+    .financial-tree-branch.level-1 > summary .financial-node-name {
+        color: #1e3a8a;
+        font-size: 1rem;
+    }
+
+    .financial-tree-branch.level-2 > summary {
+        background: #f8fafc;
+    }
+
+    .account-row {
+        background: #fff;
+    }
+
+    .account-row .financial-node-name {
+        font-weight: 600;
+    }
+
+    .financial-empty {
+        min-height: 210px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        color: #64748b;
+    }
+
+    .financial-empty i {
+        font-size: 2rem;
+        opacity: .65;
+    }
+
+    @@media (max-width: 768px) {
+        .financial-heading {
+            align-items: flex-start;
+        }
+
+        .financial-tree-row {
+            align-items: flex-start;
+            padding-inline: 12px;
+        }
+
+        .financial-tree-children {
+            padding-right: 10px;
+        }
+
+        .financial-node-info {
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .financial-level-badge {
+            display: none;
+        }
+
+        .financial-node-balance {
+            font-size: .78rem;
+        }
+    }
+</style>
+
+@code {
+    private PrintReport BuildPrintReport()
+    {
+        var table = new PrintTable { Columns = ["المستوى", "رقم الحساب", "اسم الحساب", "صافي الرصيد"] };
+        void Add(IEnumerable<FinancialStatementNodeVm> nodes)
+        {
+            foreach (var node in nodes)
+            {
+                table.Rows.Add([node.LevelName, node.Code, new string('ـ', Math.Max(0, node.Level - 1)) + " " + node.Name, FormatBalance(node.NetBalance)]);
+                Add(node.Children);
+            }
+        }
+        Add(visibleNodes);
+        table.Summary = IsBalanceStatement ? $"فرق الأصول عن الخصوم وحقوق الملكية: {FormatBalance(statement!.BalanceDifference)}"
+            : $"صافي الربح / الخسارة: {FormatBalance(statement!.NetResult)}";
+        return new PrintReport { Title = Title, Description = $"من {statement.FromDate:yyyy/MM/dd} إلى {statement.ToDate:yyyy/MM/dd} | البحث: {accountSearchText}", Tables = [table] };
+    }
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string DirectionName { get; set; } = string.Empty;
+    [Parameter] public string Subtitle { get; set; } = string.Empty;
+    [Parameter] public string Icon { get; set; } = "bi-bar-chart-line";
+
+    private FinancialStatementVm? statement;
+    private List<FinancialStatementNodeVm> visibleNodes = new();
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private DateTime? defaultFromDate;
+    private DateTime? defaultToDate;
+    private string accountSearchText = string.Empty;
+    private string? errorMessage;
+    private bool isLoading = true;
+    private int visibleAccountsCount;
+
+    private bool IsIncomeStatement
+        => string.Equals(DirectionName, "Income", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsBalanceStatement
+        => string.Equals(DirectionName, "Balance", StringComparison.OrdinalIgnoreCase);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var settings = await AccountingDataService.GetSettingsDataAsync();
+            defaultFromDate = settings.ActivePeriodStart?.Date;
+            defaultToDate = settings.ActivePeriodEnd?.Date;
+            fromDate = defaultFromDate;
+            toDate = defaultToDate;
+            await LoadStatementCoreAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex); errorMessage = $"تعذر تحميل {Title}؛ حاول مرة أخرى أو راجع مسؤول النظام.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadStatementAsync()
+    {
+        if (fromDate.HasValue && toDate.HasValue && fromDate.Value.Date > toDate.Value.Date)
+        {
+            errorMessage = "يجب أن يكون تاريخ البداية أقدم من تاريخ النهاية أو مساويًا له.";
+            return;
+        }
+
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            await LoadStatementCoreAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex); errorMessage = $"تعذر تحميل {Title}؛ حاول مرة أخرى أو راجع مسؤول النظام.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadStatementCoreAsync()
+    {
+        statement = await AccountingDataService.GetFinancialStatementAsync(DirectionName, fromDate, toDate);
+        ApplyAccountSearch();
+    }
+
+    private async Task ResetDatesAsync()
+    {
+        fromDate = defaultFromDate;
+        toDate = defaultToDate;
+        await LoadStatementAsync();
+    }
+
+    private void OnAccountSearchInput(ChangeEventArgs e)
+    {
+        accountSearchText = e.Value?.ToString() ?? string.Empty;
+        ApplyAccountSearch();
+    }
+
+    private void ClearAccountSearch()
+    {
+        accountSearchText = string.Empty;
+        ApplyAccountSearch();
+    }
+
+    private void ApplyAccountSearch()
+    {
+        if (statement is null)
+        {
+            visibleNodes.Clear();
+            visibleAccountsCount = 0;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(accountSearchText))
+        {
+            visibleNodes = statement.Nodes;
+            visibleAccountsCount = statement.AccountsCount;
+            return;
+        }
+
+        var term = accountSearchText.Trim();
+        visibleNodes = statement.Nodes
+            .Select(x => FilterNode(x, term))
+            .Where(x => x is not null)
+            .Cast<FinancialStatementNodeVm>()
+            .ToList();
+        visibleAccountsCount = CountAccounts(visibleNodes);
+    }
+
+    private static FinancialStatementNodeVm? FilterNode(FinancialStatementNodeVm node, string term)
+    {
+        if (node.IsAccount)
+        {
+            return node.Code.Contains(term, StringComparison.OrdinalIgnoreCase)
+                   || node.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
+                ? node
+                : null;
+        }
+
+        var children = node.Children
+            .Select(x => FilterNode(x, term))
+            .Where(x => x is not null)
+            .Cast<FinancialStatementNodeVm>()
+            .ToList();
+
+        if (children.Count == 0)
+        {
+            return null;
+        }
+
+        return new FinancialStatementNodeVm
+        {
+            Key = node.Key,
+            Code = node.Code,
+            Name = node.Name,
+            LevelName = node.LevelName,
+            Level = node.Level,
+            NetBalance = children.Sum(x => x.NetBalance),
+            Children = children
+        };
+    }
+
+    private static int CountAccounts(IEnumerable<FinancialStatementNodeVm> nodes)
+        => nodes.Sum(x => x.IsAccount ? 1 : CountAccounts(x.Children));
+
+    private static string FormatBalance(decimal value) => value.ToString("N2");
+}

@@ -1,0 +1,15 @@
+.account-search { min-width: 0; }
+.account-search-trigger { display: flex; align-items: center; justify-content: space-between; gap: 12px; text-align: start; }
+.account-search-trigger span { overflow-wrap: anywhere; }
+.account-search-trigger i { color: var(--q-primary, #6046e8); }
+.account-search-panel { position: fixed; inset: 0; margin: auto; width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; padding: 20px; background: #fff; color: var(--q-text, #566074); border: 1px solid var(--q-border, #dce1eb); border-radius: 12px; box-shadow: 0 20px 55px rgba(16, 24, 40, .25); }
+.account-search-panel::backdrop { background: rgba(22, 26, 37, .5); backdrop-filter: blur(2px); }
+.account-search-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+.account-search-heading h5 { margin: 0; }
+.account-search-results { max-height: 45dvh; overflow-y: auto; margin-top: 10px; }
+.account-search-option { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px; border: 0; border-bottom: 1px solid #eef0f5; background: #fff; color: inherit; text-align: start; font: inherit; }
+.account-search-option span { overflow-wrap: anywhere; }
+.account-search-option small { color: var(--q-muted, #687080); direction: ltr; }
+.account-search-option:hover, .account-search-option.selected { background: var(--q-primary-soft, #f0ecff); color: var(--q-primary, #6046e8); }
+.account-search-option:focus-visible { outline: 2px solid var(--q-primary, #6046e8); outline-offset: -2px; }
+.account-search-actions { display: flex; justify-content: space-between; margin-top: 10px; }

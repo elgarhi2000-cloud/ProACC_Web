@@ -1,0 +1,4 @@
+.journal-row-pdf { border: 0; background: transparent; color: #dc3545; border-radius: 8px; width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.05rem; }
+.journal-row-pdf:hover { background: #fff1f2; }
+.journal-row-pdf:disabled { opacity: .5; cursor: wait; }
+.journal-row-pdf:focus-visible { outline: 2px solid #dc3545; outline-offset: 2px; }

@@ -1,0 +1,140 @@
+﻿@using BlazorApp1.Services
+<section class="mb-5" aria-label="@($"كشف حساب {statement.AccountId} — {statement.AccountName}")">
+        <ReportPrintButton Kind="account-statement" BuildReport="BuildPrintReport" ToolbarSection="@ToolbarSection" />
+        <div class="statement-account-card mb-4">
+            <div class="statement-account-icon"><i class="bi bi-wallet2"></i></div>
+            <div>
+                <span>الحساب المحدد</span>
+                <strong>@statement.AccountId - @statement.AccountName</strong>
+            </div>
+        </div>
+
+        <div class="row g-3 mb-4">
+            <div class="col-sm-6 col-xl-3">
+                <div class="summary-card opening-card">
+                    <span>الرصيد الافتتاحي</span>
+                    <strong>@FormatBalance(statement.OpeningBalance)</strong>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <div class="summary-card debit-card">
+                    <span>إجمالي المدين</span>
+                    <strong>@FormatCurrency(statement.TotalDebit)</strong>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <div class="summary-card credit-card">
+                    <span>إجمالي الدائن</span>
+                    <strong>@FormatCurrency(statement.TotalCredit)</strong>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <div class="summary-card closing-card">
+                    <span>الرصيد الختامي</span>
+                    <strong>@FormatBalance(statement.ClosingBalance)</strong>
+                </div>
+            </div>
+        </div>
+
+        <div class="card border-0 shadow-sm statement-table-card">
+            <div class="card-body">
+                <div class="section-search-bar mb-3">
+                    <input aria-label="ابحث برقم القيد، المصدر، المرجع أو الوصف" type="search" class="form-control section-search-input" value="@searchText" @oninput="OnSearchInput" placeholder="ابحث برقم القيد، المصدر، المرجع أو الوصف" />
+                    <button class="btn section-search-btn" @onclick="ApplySearch"><i class="bi bi-search me-1"></i>بحث</button>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle statement-table">
+                        <thead>
+                        <tr>
+                            <th>التاريخ</th>
+                            <th>رقم القيد</th>
+                            <th>المصدر</th>
+                            <th>المرجع</th>
+                            <th>البيان</th>
+                            <th>مدين</th>
+                            <th>دائن</th>
+                            <th>الرصيد</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        @if (filteredLines.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="8" class="text-center text-muted py-5">لا توجد حركات مطابقة للحساب والفترة المحددين.</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var line in filteredLines)
+                            {
+                                <tr>
+                                    <td class="text-nowrap">@(line.Date?.ToString("yyyy/MM/dd") ?? "-")</td>
+                                    <td class="text-nowrap">#@(line.GLID?.ToString() ?? "-")</td>
+                                    <td>@EmptyAsDash(line.SourceName)</td>
+                                    <td>@EmptyAsDash(line.Reference)</td>
+                                    <td class="description-cell">@EmptyAsDash(line.Description)</td>
+                                    <td class="text-success fw-semibold text-nowrap">@FormatCurrency(line.Debit)</td>
+                                    <td class="text-danger fw-semibold text-nowrap">@FormatCurrency(line.Credit)</td>
+                                    <td class="fw-bold text-nowrap @(line.RunningBalance >= 0 ? "text-primary" : "text-danger")">@FormatBalance(line.RunningBalance)</td>
+                                </tr>
+                            }
+                        }
+                        </tbody>
+                        <tfoot>
+                        <tr class="table-light fw-bold">
+                            <td colspan="5" class="text-end">إجمالي النتائج المعروضة</td>
+                            <td class="text-success text-nowrap">@FormatCurrency(filteredLines.Sum(x => x.Debit))</td>
+                            <td class="text-danger text-nowrap">@FormatCurrency(filteredLines.Sum(x => x.Credit))</td>
+                            <td></td>
+                        </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+</section>
+@code {
+    [Parameter] public object? ToolbarSection { get; set; }
+    [Parameter] public string PeriodDescription { get; set; } = "";
+    private PrintReport BuildPrintReport() => new() { Title = $"كشف حساب {statement.AccountId} - {statement.AccountName}", Landscape = true,
+        Description = PeriodDescription + $" | البحث: {searchText}",
+        Tables = [new PrintTable { Summary = $"الرصيد الافتتاحي: {FormatBalance(statement.OpeningBalance)} | الرصيد الختامي: {FormatBalance(statement.ClosingBalance)}",
+            Columns = ["التاريخ", "رقم القيد", "المصدر", "المرجع", "البيان", "مدين", "دائن", "الرصيد"],
+            Rows = filteredLines.Select(r => new string?[] { r.Date?.ToString("yyyy/MM/dd"), r.GLID?.ToString(), r.SourceName, r.Reference, r.Description, FormatCurrency(r.Debit), FormatCurrency(r.Credit), FormatBalance(r.RunningBalance) }).ToList(),
+            Totals = ["إجمالي النتائج المعروضة", "", "", "", "", FormatCurrency(filteredLines.Sum(r => r.Debit)), FormatCurrency(filteredLines.Sum(r => r.Credit)), ""] }] };
+    [Parameter, EditorRequired] public AccountStatementVm statement { get; set; } = default!;
+    private List<AccountStatementLineVm> filteredLines = new();
+    private string searchText = "";
+    protected override void OnParametersSet() => ApplySearch();
+    private void ApplySearch()
+    {
+        if (statement is null)
+        {
+            filteredLines.Clear();
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(searchText))
+        {
+            filteredLines = statement.Lines.ToList();
+            return;
+        }
+
+        var term = searchText.Trim();
+        filteredLines = statement.Lines.Where(x =>
+                x.TransId.ToString().Contains(term, StringComparison.OrdinalIgnoreCase)
+                || (x.GLID?.ToString().Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
+                || (x.SerialNo?.ToString().Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
+                || (x.Date?.ToString("yyyy/MM/dd").Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
+                || x.SourceName.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || x.Reference.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || x.Description.Contains(term, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    private void OnSearchInput(ChangeEventArgs e) { searchText = e.Value?.ToString() ?? ""; ApplySearch(); }
+    private static string EmptyAsDash(string value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+    private static string FormatCurrency(decimal value) => value.ToString("N2");
+    private static string FormatBalance(decimal value) => value.ToString("N2");
+}

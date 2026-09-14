@@ -1,0 +1,363 @@
+@inject ReportDesignService Designs
+@inject ISessionService PrintSession
+@page "/accounting/reports/trial-balance"
+@layout BlazorApp1.Components.Layout.AccountingLayout
+@using BlazorApp1.Services
+@inject IAccountingDataService AccountingDataService
+@inject ISessionService SessionService
+@inject IJSRuntime JS
+
+<PageTitle>ميزان المراجعة - النظام المحاسبي</PageTitle>
+
+<div class="page-content trial-balance-page" dir="rtl">
+    <div class="trial-balance-heading">
+        <div>
+            <h3><i class="bi bi-table"></i>ميزان المراجعة</h3>
+            <small>تحليل الأرصدة الافتتاحية وحركات الفترة والأرصدة الختامية</small>
+        </div>
+        <div class="trial-balance-heading-actions">
+            <button type="button" class="btn btn-outline-danger btn-sm" @onclick="ExportPdfAsync" disabled="@(report is null)"><i class="bi bi-file-earmark-pdf"></i>تصدير PDF</button>
+            <button type="button" class="btn btn-outline-success btn-sm" @onclick="ExportExcelAsync" disabled="@(report is null)"><i class="bi bi-file-earmark-excel"></i>تصدير Excel</button>
+            <span class="trial-balance-count">@FilteredRows.Count حساب</span>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-danger trial-balance-alert">@errorMessage</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(statusMessage))
+    {
+        <div class="alert alert-success trial-balance-alert">@statusMessage</div>
+    }
+
+    <section class="card trial-balance-filter-card">
+        <div class="trial-balance-filter-grid">
+            <div class="trial-balance-filter-field">
+                <label>الفترة المالية</label>
+                <select value="@selectedPeriodId" @onchange="OnPeriodChanged">
+                    @foreach (var period in periods)
+                    {
+                        <option value="@period.PeriodId">@period.PeriodName @(period.IsClosed ? "- مغلقة" : null)</option>
+                    }
+                </select>
+            </div>
+            <div class="trial-balance-filter-field">
+                <label>من تاريخ</label>
+                <input type="date" value="@DateInput(fromDate)" min="@DateInput(SelectedPeriod?.StartDate)" max="@DateInput(SelectedPeriod?.EndDate)" @onchange="OnFromDateChanged" />
+            </div>
+            <div class="trial-balance-filter-field">
+                <label>إلى تاريخ</label>
+                <input type="date" value="@DateInput(toDate)" min="@DateInput(SelectedPeriod?.StartDate)" max="@DateInput(SelectedPeriod?.EndDate)" @onchange="OnToDateChanged" />
+            </div>
+            <button type="button" class="btn btn-primary trial-balance-apply" @onclick="LoadReportAsync" disabled="@isLoading"><i class="bi bi-funnel"></i>@(isLoading ? "جاري العرض..." : "عرض الميزان")</button>
+            <button type="button" class="btn trial-balance-levels-button @(showLevels ? "active" : null)" @onclick="ToggleLevels"><i class="bi bi-diagram-3"></i>@(showLevels ? "إخفاء المستويات" : "عرض المستويات الخمسة")</button>
+            <div class="trial-balance-search">
+                <i class="bi bi-search"></i>
+                <input type="search" value="@searchDraft" @oninput="OnSearchInput" placeholder="ابحث برقم الحساب أو الاسم أو المستوى" />
+                @if (!string.IsNullOrWhiteSpace(searchDraft))
+                {
+                    <button type="button" class="trial-balance-search-clear" @onclick="ClearSearch" aria-label="مسح البحث"><i class="bi bi-x-lg"></i></button>
+                }
+            </div>
+        </div>
+        @if (SelectedPeriod is not null)
+        {
+            <div class="trial-balance-period-note"><i class="bi bi-info-circle"></i>الفترة المحددة في قاعدة البيانات: @DisplayDate(SelectedPeriod.StartDate) إلى @DisplayDate(SelectedPeriod.EndDate)</div>
+        }
+    </section>
+
+    @if (isLoading && report is null)
+    {
+        <div class="trial-balance-loading"><i class="bi bi-hourglass-split"></i><span>جاري تحميل ميزان المراجعة...</span></div>
+    }
+    else if (report is not null)
+    {
+        <div class="trial-balance-summary">
+            <div><span>الرصيد الافتتاحي</span><strong class="@BalanceClass(FilteredRows.Sum(x => x.OpeningBalance))">@FormatAmount(FilteredRows.Sum(x => x.OpeningBalance))</strong></div>
+            <div><span>مدين الفترة</span><strong class="debit">@FormatAmount(FilteredRows.Sum(x => x.PeriodDebit))</strong></div>
+            <div><span>دائن الفترة</span><strong class="credit">@FormatAmount(FilteredRows.Sum(x => x.PeriodCredit))</strong></div>
+            <div><span>الرصيد الختامي</span><strong class="@BalanceClass(FilteredRows.Sum(x => x.ClosingBalance))">@FormatAmount(FilteredRows.Sum(x => x.ClosingBalance))</strong></div>
+        </div>
+
+        <section class="card trial-balance-table-card">
+            <div class="trial-balance-table-title">
+                <div><i class="bi bi-list-ul"></i><strong>تفاصيل ميزان المراجعة</strong><span>@report.PeriodName</span></div>
+                <small>@DisplayDate(report.FromDate) - @DisplayDate(report.ToDate)</small>
+            </div>
+            <div class="table-responsive trial-balance-table-wrap">
+                <table id="trial-balance-table" class="table trial-balance-table">
+                    <thead>
+                        <tr>
+                            <th class="account-code sortable-column" data-min-width="90" data-max-width="260" aria-sort="@SortAria("AccountId")" @onclick="@(() => SortBy("AccountId"))"><button type="button" class="column-sort-button">رقم الحساب<i class="bi @SortIcon("AccountId")"></i></button><span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة" @onclick:stopPropagation="true"></span></th>
+                            <th class="account-name sortable-column" data-min-width="150" data-max-width="520" aria-sort="@SortAria("AccountName")" @onclick="@(() => SortBy("AccountName"))"><button type="button" class="column-sort-button">اسم الحساب<i class="bi @SortIcon("AccountName")"></i></button><span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة" @onclick:stopPropagation="true"></span></th>
+                            @if (showLevels)
+                            {
+                                <th class="level-column sortable-column" data-min-width="100" data-max-width="400" aria-sort="@SortAria("Level1")" @onclick="@(() => SortBy("Level1"))"><button type="button" class="column-sort-button">المستوى 1<i class="bi @SortIcon("Level1")"></i></button><span class="journal-column-resizer" @onclick:stopPropagation="true"></span></th>
+                                <th class="level-column sortable-column" data-min-width="100" data-max-width="400" aria-sort="@SortAria("Level2")" @onclick="@(() => SortBy("Level2"))"><button type="button" class="column-sort-button">المستوى 2<i class="bi @SortIcon("Level2")"></i></button><span class="journal-column-resizer" @onclick:stopPropagation="true"></span></th>
+                                <th class="level-column sortable-column" data-min-width="100" data-max-width="400" aria-sort="@SortAria("Level3")" @onclick="@(() => SortBy("Level3"))"><button type="button" class="column-sort-button">المستوى 3<i class="bi @SortIcon("Level3")"></i></button><span class="journal-column-resizer" @onclick:stopPropagation="true"></span></th>
+                                <th class="level-column sortable-column" data-min-width="100" data-max-width="400" aria-sort="@SortAria("Level4")" @onclick="@(() => SortBy("Level4"))"><button type="button" class="column-sort-button">المستوى 4<i class="bi @SortIcon("Level4")"></i></button><span class="journal-column-resizer" @onclick:stopPropagation="true"></span></th>
+                                <th class="level-column sortable-column" data-min-width="100" data-max-width="400" aria-sort="@SortAria("Level5")" @onclick="@(() => SortBy("Level5"))"><button type="button" class="column-sort-button">المستوى 5<i class="bi @SortIcon("Level5")"></i></button><span class="journal-column-resizer" @onclick:stopPropagation="true"></span></th>
+                            }
+                            <th class="sortable-column" data-min-width="105" data-max-width="260" aria-sort="@SortAria("OpeningBalance")" @onclick="@(() => SortBy("OpeningBalance"))"><button type="button" class="column-sort-button">رصيد افتتاحي<i class="bi @SortIcon("OpeningBalance")"></i></button><span class="journal-column-resizer" @onclick:stopPropagation="true"></span></th>
+                            <th class="sortable-column" data-min-width="105" data-max-width="260" aria-sort="@SortAria("PeriodDebit")" @onclick="@(() => SortBy("PeriodDebit"))"><button type="button" class="column-sort-button">مدين الفترة<i class="bi @SortIcon("PeriodDebit")"></i></button><span class="journal-column-resizer" @onclick:stopPropagation="true"></span></th>
+                            <th class="sortable-column" data-min-width="105" data-max-width="260" aria-sort="@SortAria("PeriodCredit")" @onclick="@(() => SortBy("PeriodCredit"))"><button type="button" class="column-sort-button">دائن الفترة<i class="bi @SortIcon("PeriodCredit")"></i></button><span class="journal-column-resizer" @onclick:stopPropagation="true"></span></th>
+                            <th class="sortable-column" data-min-width="105" data-max-width="260" aria-sort="@SortAria("PeriodBalance")" @onclick="@(() => SortBy("PeriodBalance"))"><button type="button" class="column-sort-button">رصيد الفترة<i class="bi @SortIcon("PeriodBalance")"></i></button><span class="journal-column-resizer" @onclick:stopPropagation="true"></span></th>
+                            <th class="sortable-column" data-min-width="105" data-max-width="260" aria-sort="@SortAria("TotalDebit")" @onclick="@(() => SortBy("TotalDebit"))"><button type="button" class="column-sort-button">إجمالي مدين<i class="bi @SortIcon("TotalDebit")"></i></button><span class="journal-column-resizer" @onclick:stopPropagation="true"></span></th>
+                            <th class="sortable-column" data-min-width="105" data-max-width="260" aria-sort="@SortAria("TotalCredit")" @onclick="@(() => SortBy("TotalCredit"))"><button type="button" class="column-sort-button">إجمالي دائن<i class="bi @SortIcon("TotalCredit")"></i></button><span class="journal-column-resizer" @onclick:stopPropagation="true"></span></th>
+                            <th class="sortable-column" data-min-width="105" data-max-width="260" aria-sort="@SortAria("ClosingBalance")" @onclick="@(() => SortBy("ClosingBalance"))"><button type="button" class="column-sort-button">رصيد ختامي<i class="bi @SortIcon("ClosingBalance")"></i></button><span class="journal-column-resizer" @onclick:stopPropagation="true"></span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (FilteredRows.Count == 0)
+                        {
+                            <tr><td colspan="@(showLevels ? 14 : 9)" class="trial-balance-empty">لا توجد حسابات مطابقة لمعايير العرض.</td></tr>
+                        }
+                        else
+                        {
+                            @foreach (var row in FilteredRows)
+                            {
+                                <tr>
+                                    <td class="account-code">@row.AccountId</td><td class="account-name">@row.AccountName</td>
+                                    @if (showLevels)
+                                    {
+                                        <td class="level-column">@row.Level1</td><td class="level-column">@row.Level2</td><td class="level-column">@row.Level3</td><td class="level-column">@row.Level4</td><td class="level-column">@row.Level5</td>
+                                    }
+                                    <td class="amount @BalanceClass(row.OpeningBalance)">@FormatAmount(row.OpeningBalance)</td>
+                                    <td class="amount debit">@FormatAmount(row.PeriodDebit)</td>
+                                    <td class="amount credit">@FormatAmount(row.PeriodCredit)</td>
+                                    <td class="amount @BalanceClass(row.PeriodBalance)">@FormatAmount(row.PeriodBalance)</td>
+                                    <td class="amount debit">@FormatAmount(row.TotalDebit)</td>
+                                    <td class="amount credit">@FormatAmount(row.TotalCredit)</td>
+                                    <td class="amount closing @BalanceClass(row.ClosingBalance)">@FormatAmount(row.ClosingBalance)</td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <th colspan="@(showLevels ? 7 : 2)">الإجمالي</th>
+                            <th class="amount @BalanceClass(FilteredRows.Sum(x => x.OpeningBalance))">@FormatAmount(FilteredRows.Sum(x => x.OpeningBalance))</th>
+                            <th class="amount debit">@FormatAmount(FilteredRows.Sum(x => x.PeriodDebit))</th>
+                            <th class="amount credit">@FormatAmount(FilteredRows.Sum(x => x.PeriodCredit))</th>
+                            <th class="amount @BalanceClass(FilteredRows.Sum(x => x.PeriodBalance))">@FormatAmount(FilteredRows.Sum(x => x.PeriodBalance))</th>
+                            <th class="amount debit">@FormatAmount(FilteredRows.Sum(x => x.TotalDebit))</th>
+                            <th class="amount credit">@FormatAmount(FilteredRows.Sum(x => x.TotalCredit))</th>
+                            <th class="amount closing @BalanceClass(FilteredRows.Sum(x => x.ClosingBalance))">@FormatAmount(FilteredRows.Sum(x => x.ClosingBalance))</th>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </section>
+    }
+</div>
+
+@code {
+    private List<FinancialPeriodOptionVm> periods = new();
+    private TrialBalanceReportVm? report;
+    private SettingsDataVm settings = new();
+    private int? selectedPeriodId;
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private bool isLoading = true;
+    private bool showLevels;
+    private bool columnFitPending = true;
+    private string searchDraft = string.Empty;
+    private string sortColumn = "AccountId";
+    private bool sortDescending;
+    private string? errorMessage;
+    private string? statusMessage;
+
+    private FinancialPeriodOptionVm? SelectedPeriod => periods.FirstOrDefault(x => x.PeriodId == selectedPeriodId);
+
+    private List<TrialBalanceRowVm> FilteredRows
+    {
+        get
+        {
+            if (report is null) return new List<TrialBalanceRowVm>();
+            IEnumerable<TrialBalanceRowVm> rows = report.Rows;
+            if (!string.IsNullOrWhiteSpace(searchDraft))
+            {
+                var term = searchDraft.Trim();
+                rows = rows.Where(row => row.AccountId.ToString().Contains(term, StringComparison.OrdinalIgnoreCase)
+                || row.AccountName.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || row.Level1.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || row.Level2.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || row.Level3.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || row.Level4.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || row.Level5.Contains(term, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return SortRows(rows).ToList();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            periods = (await AccountingDataService.GetFinancialPeriodsAsync()).ToList();
+            settings = await AccountingDataService.GetSettingsDataAsync();
+            selectedPeriodId = periods.Any(x => x.PeriodId == SessionService.SelectedPeriodId) ? SessionService.SelectedPeriodId : periods.FirstOrDefault()?.PeriodId;
+            ApplySelectedPeriodDates();
+            await LoadReportAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex);
+            errorMessage = "تعذر تحميل ميزان المراجعة؛ حاول مرة أخرى أو راجع مسؤول النظام.";
+            isLoading = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!columnFitPending || report is null) return;
+
+        try
+        {
+            await JS.InvokeVoidAsync("journalEntryTableColumns.fit", "trial-balance-table");
+            columnFitPending = false;
+        }
+        catch (InvalidOperationException)
+        {
+            // يعاد التنفيذ تلقائياً بعد اكتمال العرض التفاعلي.
+        }
+    }
+
+    private async Task LoadReportAsync()
+    {
+        errorMessage = null;
+        statusMessage = null;
+        isLoading = true;
+        try
+        {
+            report = await AccountingDataService.GetTrialBalanceAsync(selectedPeriodId, fromDate, toDate);
+            fromDate = report.FromDate;
+            toDate = report.ToDate;
+            columnFitPending = true;
+        }
+        catch (Exception ex) { System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex); errorMessage = "تعذر عرض ميزان المراجعة؛ حاول مرة أخرى أو راجع مسؤول النظام."; }
+        finally { isLoading = false; }
+    }
+
+    private void OnPeriodChanged(ChangeEventArgs args)
+    {
+        selectedPeriodId = int.TryParse(args.Value?.ToString(), out var periodId) ? periodId : null;
+        ApplySelectedPeriodDates();
+    }
+
+    private void ApplySelectedPeriodDates()
+    {
+        fromDate = SelectedPeriod?.StartDate?.Date;
+        toDate = SelectedPeriod?.EndDate?.Date;
+    }
+
+    private void OnFromDateChanged(ChangeEventArgs args) => fromDate = DateTime.TryParse(args.Value?.ToString(), out var date) ? date.Date : null;
+    private void OnToDateChanged(ChangeEventArgs args) => toDate = DateTime.TryParse(args.Value?.ToString(), out var date) ? date.Date : null;
+    private void OnSearchInput(ChangeEventArgs args)
+    {
+        searchDraft = args.Value?.ToString() ?? string.Empty;
+        columnFitPending = true;
+    }
+
+    private void ClearSearch()
+    {
+        searchDraft = string.Empty;
+        columnFitPending = true;
+    }
+
+    private void ToggleLevels()
+    {
+        showLevels = !showLevels;
+        columnFitPending = true;
+    }
+
+    private void SortBy(string column)
+    {
+        if (sortColumn == column) sortDescending = !sortDescending;
+        else { sortColumn = column; sortDescending = false; }
+    }
+
+    private IEnumerable<TrialBalanceRowVm> SortRows(IEnumerable<TrialBalanceRowVm> rows) => (sortColumn, sortDescending) switch
+    {
+        ("AccountId", false) => rows.OrderBy(x => x.AccountId),
+        ("AccountId", true) => rows.OrderByDescending(x => x.AccountId),
+        ("AccountName", false) => rows.OrderBy(x => x.AccountName),
+        ("AccountName", true) => rows.OrderByDescending(x => x.AccountName),
+        ("Level1", false) => rows.OrderBy(x => x.Level1).ThenBy(x => x.AccountId),
+        ("Level1", true) => rows.OrderByDescending(x => x.Level1).ThenBy(x => x.AccountId),
+        ("Level2", false) => rows.OrderBy(x => x.Level2).ThenBy(x => x.AccountId),
+        ("Level2", true) => rows.OrderByDescending(x => x.Level2).ThenBy(x => x.AccountId),
+        ("Level3", false) => rows.OrderBy(x => x.Level3).ThenBy(x => x.AccountId),
+        ("Level3", true) => rows.OrderByDescending(x => x.Level3).ThenBy(x => x.AccountId),
+        ("Level4", false) => rows.OrderBy(x => x.Level4).ThenBy(x => x.AccountId),
+        ("Level4", true) => rows.OrderByDescending(x => x.Level4).ThenBy(x => x.AccountId),
+        ("Level5", false) => rows.OrderBy(x => x.Level5).ThenBy(x => x.AccountId),
+        ("Level5", true) => rows.OrderByDescending(x => x.Level5).ThenBy(x => x.AccountId),
+        ("OpeningBalance", false) => rows.OrderBy(x => x.OpeningBalance),
+        ("OpeningBalance", true) => rows.OrderByDescending(x => x.OpeningBalance),
+        ("PeriodDebit", false) => rows.OrderBy(x => x.PeriodDebit),
+        ("PeriodDebit", true) => rows.OrderByDescending(x => x.PeriodDebit),
+        ("PeriodCredit", false) => rows.OrderBy(x => x.PeriodCredit),
+        ("PeriodCredit", true) => rows.OrderByDescending(x => x.PeriodCredit),
+        ("PeriodBalance", false) => rows.OrderBy(x => x.PeriodBalance),
+        ("PeriodBalance", true) => rows.OrderByDescending(x => x.PeriodBalance),
+        ("TotalDebit", false) => rows.OrderBy(x => x.TotalDebit),
+        ("TotalDebit", true) => rows.OrderByDescending(x => x.TotalDebit),
+        ("TotalCredit", false) => rows.OrderBy(x => x.TotalCredit),
+        ("TotalCredit", true) => rows.OrderByDescending(x => x.TotalCredit),
+        ("ClosingBalance", false) => rows.OrderBy(x => x.ClosingBalance),
+        ("ClosingBalance", true) => rows.OrderByDescending(x => x.ClosingBalance),
+        _ => rows.OrderBy(x => x.AccountId)
+    };
+
+    private string SortIcon(string column) => sortColumn == column
+        ? sortDescending ? "bi-sort-down" : "bi-sort-up"
+        : "bi-arrow-down-up";
+
+    private string SortAria(string column) => sortColumn == column
+        ? sortDescending ? "descending" : "ascending"
+        : "none";
+
+    private async Task ExportPdfAsync()
+    {
+        if (report is null) return;
+        errorMessage = null;
+        try { var printReport = BuildExportData(); printReport.Design = await Designs.ForPrintAsync("trial-balance"); printReport.CompanyLogo = settings.CompanyLogo; printReport.PrintedBy = PrintSession.CurrentUsername; await JS.InvokeVoidAsync("trialBalanceExport.print", printReport); }
+        catch (Exception ex) { System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex); errorMessage = "تعذر تصدير ميزان المراجعة إلى PDF؛ حاول مرة أخرى أو راجع مسؤول النظام."; }
+    }
+
+    private async Task ExportExcelAsync()
+    {
+        if (report is null) return;
+        errorMessage = null;
+        try
+        {
+            var exportData = BuildExportData();
+            var bytes = TrialBalanceExcelExporter.Create(exportData);
+            await JS.InvokeVoidAsync("trialBalanceExport.downloadBase64", $"ميزان_المراجعة_{report.PeriodName}_{report.FromDate:yyyyMMdd}_{report.ToDate:yyyyMMdd}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", Convert.ToBase64String(bytes));
+            statusMessage = "تم تجهيز ملف Excel بنجاح.";
+        }
+        catch (Exception ex) { System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex); errorMessage = "تعذر تصدير ميزان المراجعة إلى Excel؛ حاول مرة أخرى أو راجع مسؤول النظام."; }
+    }
+
+    private TrialBalanceExportVm BuildExportData() => new()
+    {
+        CompanyName = string.IsNullOrWhiteSpace(settings.CompanyName) ? "المنشأة" : settings.CompanyName,
+        CompanyAddress = settings.CompanyAddress,
+        CompanyPhone = settings.CompanyPhone,
+        CommercialRecord = settings.CommercialRecord,
+        TaxNumber = settings.TaxNumber,
+        PeriodName = report?.PeriodName ?? string.Empty,
+        FromDate = report?.FromDate ?? DateTime.Today,
+        ToDate = report?.ToDate ?? DateTime.Today,
+        IncludeLevels = showLevels,
+        Rows = FilteredRows.ToList()
+    };
+
+    private static string DateInput(DateTime? date) => date?.ToString("yyyy-MM-dd") ?? string.Empty;
+    private static string DisplayDate(DateTime? date) => date?.ToString("dd/MM/yyyy") ?? "-";
+    private static string FormatAmount(decimal value) => value.ToString("N2");
+    private static string BalanceClass(decimal value) => value < 0m ? "credit" : value > 0m ? "debit" : "zero";
+}

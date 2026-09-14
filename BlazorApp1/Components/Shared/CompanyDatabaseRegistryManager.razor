@@ -1,0 +1,357 @@
+﻿@using BlazorApp1.Services
+@inject ICompanyDatabaseAdminService AdminService
+@inject ISessionService SessionService
+@inject IProAccDbContextAccessor DbContextAccessor
+@inject NavigationManager NavigationManager
+@implements IDisposable
+
+<section class="card registry-card" dir="rtl">
+    <div class="card-header registry-header">
+        <div>
+            <h5 class="mb-1"><i class="bi bi-buildings-fill"></i> قواعد المنشآت ورموز الدخول</h5>
+            <small>إدارة الربط المباشر بقواعد SQL وتخزين الروابط والرموز داخل ملف مشفر</small>
+        </div>
+        <div class="registry-header-actions">
+            <button class="btn btn-outline-primary btn-sm" type="button" @onclick="DiscoverAsync" disabled="@isBusy">
+                <i class="bi bi-radar"></i> اكتشاف قواعد الخادم
+            </button>
+            <button class="btn btn-primary btn-sm" type="button" @onclick="StartAdd" disabled="@isBusy">
+                <i class="bi bi-plus-lg"></i> إضافة منشأة
+            </button>
+        </div>
+    </div>
+
+    <div class="card-body">
+        <div class="registry-summary">
+            <div><i class="bi bi-database-check"></i><span>المنشآت المرتبطة</span><strong>@records.Count</strong></div>
+            <div><i class="bi bi-server"></i><span>قواعد مكتشفة</span><strong>@serverDatabases.Count</strong></div>
+            <div><i class="bi bi-shield-lock"></i><span>حالة التخزين</span><strong>مشفر</strong></div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(message))
+        {
+            <div class="alert @(messageIsSuccess ? "alert-success" : "alert-danger")">@message</div>
+        }
+
+        @if (editorOpen)
+        {
+            <div class="registry-editor">
+                <div class="editor-heading">
+                    <div>
+                        <h6>@(string.IsNullOrWhiteSpace(originalKey) ? "ربط منشأة جديدة" : "تعديل ربط المنشأة")</h6>
+                        <small>لن يُحفظ السجل إلا بعد نجاح الاتصال والتحقق من بنية القاعدة.</small>
+                    </div>
+                    <button class="btn-close" type="button" @onclick="CancelEdit" aria-label="إغلاق"></button>
+                </div>
+
+                <div class="editor-grid">
+                    <div>
+                        <label class="form-label" for="managedCompanyName">اسم المنشأة الظاهر</label>
+                        <input id="managedCompanyName" class="form-control" @bind="editor.DisplayName" placeholder="مثال: مؤسسة النور" />
+                    </div>
+                    <div>
+                        <label class="form-label" for="managedDatabaseName">قاعدة البيانات على الخادم</label>
+                        <input id="managedDatabaseName" class="form-control" list="serverDatabaseNames"
+                               @bind="editor.DatabaseName" placeholder="اختر أو اكتب اسم القاعدة" />
+                        <datalist id="serverDatabaseNames">
+                            @foreach (var database in serverDatabases) { <option value="@database"></option> }
+                        </datalist>
+                    </div>
+                    <div class="full-width">
+                        <label class="form-label" for="managedLoginCode">رمز المنشأة</label>
+                        <div class="secret-input-row">
+                            <input id="managedLoginCode" class="form-control" type="@(showLoginCode ? "text" : "password")"
+                                   @bind="editor.LoginCode" autocomplete="off"
+                                   placeholder="@(string.IsNullOrWhiteSpace(originalKey) ? "رمز سري لا يقل عن 8 محارف" : "اتركه فارغًا للإبقاء على الرمز الحالي")" />
+                            <button class="btn btn-outline-secondary" type="button" aria-label="إظهار أو إخفاء رمز المنشأة" title="إظهار أو إخفاء رمز المنشأة" @onclick="ToggleLoginCode">
+                                <i class="bi @(showLoginCode ? "bi-eye-slash" : "bi-eye")"></i>
+                            </button>
+                            <button class="btn btn-outline-secondary" type="button" @onclick="GenerateCode">
+                                <i class="bi bi-magic"></i> توليد
+                            </button>
+                        </div>
+                        <small class="text-muted">عند توليد رمز جديد انسخه قبل الحفظ؛ يُحفظ كقيمة تجزئة ولا يمكن استعادته لاحقًا، ويمكن فقط إعادة تعيينه.</small>
+                    </div>
+                    <div class="full-width">
+                        <label class="form-label" for="managedConnectionString">رابط اتصال خاص <span class="text-muted">(اختياري)</span></label>
+                        <div class="secret-input-row connection-row">
+                            <input id="managedConnectionString" class="form-control" type="@(showRecordConnection ? "text" : "password")"
+                                   @bind="editor.ConnectionString" dir="ltr"
+                                   placeholder="اتركه فارغًا لاستخدام رابط الخادم المشترك أعلاه" />
+                            <button class="btn btn-outline-secondary" type="button" aria-label="إظهار أو إخفاء بيانات الاتصال" title="إظهار أو إخفاء بيانات الاتصال" @onclick="ToggleRecordConnection">
+                                <i class="bi @(showRecordConnection ? "bi-eye-slash" : "bi-eye")"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="full-width form-check form-switch editor-enabled">
+                        <input id="managedEnabled" class="form-check-input" type="checkbox" @bind="editor.Enabled" />
+                        <label class="form-check-label" for="managedEnabled">تفعيل المنشأة والسماح بتسجيل الدخول إليها</label>
+                    </div>
+                </div>
+
+                @if (linkTest is not null)
+                {
+                    <div class="alert @(linkTest.Success ? "alert-success" : "alert-danger") editor-test-result">
+                        <i class="bi @(linkTest.Success ? "bi-check-circle-fill" : "bi-x-circle-fill")"></i>
+                        <div><strong>@linkTest.Message</strong>
+                            @if (linkTest.Success) { <span>@linkTest.CompanyName — @linkTest.Server / @linkTest.Database</span> }
+                        </div>
+                    </div>
+                }
+
+                <div class="editor-actions">
+                    <button class="btn btn-outline-primary" type="button" @onclick="TestRecordAsync" disabled="@isBusy">
+                        <i class="bi bi-plug"></i> اختبار الربط
+                    </button>
+                    <button class="btn btn-primary" type="button" @onclick="SaveRecordAsync" disabled="@isBusy">
+                        @if (isBusy) { <span class="spinner-border spinner-border-sm"></span> }
+                        else { <i class="bi bi-shield-check"></i> }
+                        اختبار وحفظ مشفر
+                    </button>
+                    <button class="btn btn-outline-secondary" type="button" @onclick="CancelEdit" disabled="@isBusy">إلغاء</button>
+                </div>
+            </div>
+        }
+
+        <div class="registry-table-wrap">
+            <table class="table registry-table">
+                <thead><tr><th>المنشأة</th><th>قاعدة SQL</th><th>رمز المنشأة</th><th>رابط الاتصال</th><th>الحالة</th><th></th></tr></thead>
+                <tbody>
+                    @if (records.Count == 0)
+                    {
+                        <tr><td colspan="6" class="empty-registry"><i class="bi bi-database-add"></i> لا توجد منشآت مرتبطة بعد.</td></tr>
+                    }
+                    @foreach (var record in records)
+                    {
+                        <tr>
+                            <td><strong>@record.DisplayName</strong></td>
+                            <td><code>@record.DatabaseName</code></td>
+                            <td><span class="secret-pill">••••••••••••</span></td>
+                            <td><span class="connection-kind @(string.IsNullOrWhiteSpace(record.ConnectionString) ? "shared" : "private")">
+                                <i class="bi @(string.IsNullOrWhiteSpace(record.ConnectionString) ? "bi-link-45deg" : "bi-shield-lock-fill")"></i>
+                                @(string.IsNullOrWhiteSpace(record.ConnectionString) ? "مشترك" : "خاص مشفر")
+                            </span></td>
+                            <td><span class="status-pill @(record.Enabled ? "enabled" : "disabled")">@(record.Enabled ? "مفعلة" : "معطلة")</span></td>
+                            <td class="row-actions">
+                                <button class="btn btn-sm btn-outline-primary" type="button" @onclick="() => StartEdit(record)" title="تعديل"><i class="bi bi-pencil"></i></button>
+                                @if (pendingDeleteKey == record.Key)
+                                {
+                                    <button class="btn btn-sm btn-danger" type="button" @onclick="() => DeleteAsync(record.Key)" disabled="@isBusy">تأكيد الحذف</button>
+                                    <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="CancelDelete">إلغاء</button>
+                                }
+                                else
+                                {
+                                    <button class="btn btn-sm btn-outline-danger" type="button" @onclick="() => AskDelete(record.Key)" title="حذف الربط"><i class="bi bi-trash"></i></button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="registry-security-note">
+            <i class="bi bi-info-circle-fill"></i>
+            <span>حذف السجل يلغي وصول التطبيق فقط ولا يحذف قاعدة البيانات من SQL Server. الروابط والرموز تُحفظ مشفرة ولا تُعرض في الجدول.</span>
+        </div>
+    </div>
+</section>
+
+<style>
+    .registry-card { margin-top: 20px; overflow: hidden; border: 1px solid var(--q-border); }
+    .registry-header { padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--q-surface); }
+    .registry-header h5 i { margin-left: 7px; color: var(--q-primary); }
+    .registry-header-actions, .editor-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .registry-summary { margin-bottom: 18px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .registry-summary > div { padding: 13px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 9px; background: var(--q-primary-faint); border-radius: 10px; }
+    .registry-summary i { color: var(--q-primary); font-size: 1.1rem; }
+    .registry-summary span { color: var(--q-muted); font-size: .76rem; }
+    .registry-summary strong { font-size: .9rem; }
+    .registry-editor { margin-bottom: 20px; padding: 18px; background: #fafaff; border: 1px solid #dcd8f5; border-radius: 12px; }
+    .editor-heading { margin-bottom: 16px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .editor-heading h6 { margin: 0 0 3px; font-weight: 800; }
+    .editor-heading small { color: var(--q-muted); }
+    .editor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+    .editor-grid .full-width { grid-column: 1 / -1; }
+    .secret-input-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 7px; }
+    .connection-row { grid-template-columns: minmax(0, 1fr) auto; }
+    .secret-input-row input[dir="ltr"] { text-align: left; font-family: Consolas, monospace; font-size: .8rem; }
+    .editor-enabled { margin-top: 3px; padding-right: 2.6em; }
+    .editor-test-result { margin: 15px 0 0; display: flex; align-items: center; gap: 9px; }
+    .editor-test-result > div { display: flex; flex-direction: column; }
+    .editor-test-result span { font-size: .75rem; opacity: .8; }
+    .editor-actions { margin-top: 16px; }
+    .registry-table-wrap { overflow-x: auto; }
+    .registry-table { margin: 0; vertical-align: middle; white-space: nowrap; }
+    .registry-table th { color: var(--q-muted); background: #f8f9fb; font-size: .72rem; }
+    .registry-table td { font-size: .8rem; }
+    .registry-table code { color: #5548cf; }
+    .secret-pill, .connection-kind, .status-pill { padding: 5px 8px; display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; font-size: .7rem; font-weight: 750; }
+    .secret-pill { color: #6b7280; background: #f0f1f3; letter-spacing: 1px; }
+    .connection-kind.shared { color: #315f91; background: #eaf3fd; }
+    .connection-kind.private { color: #6b4a18; background: #fff4dc; }
+    .status-pill.enabled { color: #176b44; background: #e8f8f0; }
+    .status-pill.disabled { color: #8a3540; background: #fdecef; }
+    .row-actions { display: flex; justify-content: flex-end; gap: 5px; }
+    .empty-registry { padding: 30px !important; color: var(--q-muted); text-align: center; }
+    .empty-registry i { margin-left: 7px; font-size: 1.1rem; }
+    .registry-security-note { margin-top: 16px; padding: 12px 14px; display: flex; align-items: flex-start; gap: 8px; color: #315f58; background: #edf9f6; border-radius: 9px; font-size: .78rem; }
+    @@media (max-width: 760px) {
+        .registry-header { align-items: flex-start; flex-direction: column; }
+        .registry-summary, .editor-grid { grid-template-columns: 1fr; }
+        .editor-grid .full-width { grid-column: auto; }
+        .secret-input-row { grid-template-columns: 1fr auto; }
+        .secret-input-row > button:last-child { grid-column: 1 / -1; }
+    }
+</style>
+
+@code {
+    private List<CompanyDatabaseDefinition> records = new();
+    private List<string> serverDatabases = new();
+    private CompanyDatabaseDefinition editor = NewDefinition();
+    private CompanyDatabaseLinkTestResult? linkTest;
+    private CancellationTokenSource? cancellation;
+    private string? originalKey;
+    private string? pendingDeleteKey;
+    private string message = string.Empty;
+    private bool messageIsSuccess;
+    private bool editorOpen;
+    private bool showLoginCode;
+    private bool showRecordConnection;
+    private bool isBusy;
+
+    protected override void OnInitialized() => ReloadRecords();
+
+    private void ReloadRecords() => records = AdminService.GetRecords().ToList();
+
+    private void StartAdd()
+    {
+        editor = NewDefinition();
+        originalKey = null;
+        linkTest = null;
+        message = string.Empty;
+        showLoginCode = false;
+        showRecordConnection = false;
+        editorOpen = true;
+    }
+
+    private void StartEdit(CompanyDatabaseDefinition record)
+    {
+        editor = Clone(record);
+        originalKey = record.Key;
+        linkTest = null;
+        message = string.Empty;
+        showLoginCode = false;
+        showRecordConnection = false;
+        editorOpen = true;
+    }
+
+    private void CancelEdit()
+    {
+        editor = NewDefinition();
+        originalKey = null;
+        linkTest = null;
+        showLoginCode = false;
+        showRecordConnection = false;
+        editorOpen = false;
+    }
+
+    private async Task DiscoverAsync()
+    {
+        await RunBusyAsync(async token =>
+        {
+            serverDatabases = (await AdminService.DiscoverServerDatabasesAsync(token)).ToList();
+            messageIsSuccess = true;
+            message = $"تم العثور على {serverDatabases.Count} قاعدة متاحة على الخادم.";
+        });
+    }
+
+    private async Task TestRecordAsync()
+    {
+        await RunBusyAsync(async token => linkTest = await AdminService.TestAsync(editor, token));
+    }
+
+    private async Task SaveRecordAsync()
+    {
+        await RunBusyAsync(async token =>
+        {
+            var result = await AdminService.SaveAsync(editor, originalKey, token);
+            message = result.Message;
+            messageIsSuccess = result.Success;
+            if (result.Success)
+            {
+                if (string.Equals(originalKey, SessionService.SelectedDatabaseKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    DbContextAccessor.Reset();
+                }
+                ReloadRecords();
+                CancelEdit();
+                message = result.Message;
+                messageIsSuccess = true;
+            }
+        });
+    }
+
+    private void AskDelete(string key) => pendingDeleteKey = key;
+    private void CancelDelete() => pendingDeleteKey = null;
+
+    private async Task DeleteAsync(string key)
+    {
+        await RunBusyAsync(async token =>
+        {
+            var result = await AdminService.DeleteAsync(key, token);
+            message = result.Message;
+            messageIsSuccess = result.Success;
+            pendingDeleteKey = null;
+            if (result.Success)
+            {
+                if (string.Equals(key, SessionService.SelectedDatabaseKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    await SessionService.LogoutAsync();
+                    DbContextAccessor.Reset();
+                    NavigationManager.NavigateTo("/login");
+                    return;
+                }
+                ReloadRecords();
+            }
+        });
+    }
+
+    private async Task RunBusyAsync(Func<CancellationToken, Task> operation)
+    {
+        if (isBusy) return;
+        isBusy = true;
+        cancellation?.Cancel();
+        cancellation?.Dispose();
+        cancellation = new CancellationTokenSource();
+        try { await operation(cancellation.Token); }
+        catch (OperationCanceledException) { messageIsSuccess = false; message = "تم إلغاء العملية."; }
+        catch (Exception ex) { messageIsSuccess = false; System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex); message = "تعذر تنفيذ العملية؛ حاول مرة أخرى أو راجع مسؤول النظام."; }
+        finally { isBusy = false; }
+    }
+
+    private void GenerateCode() { editor.LoginCode = AdminService.GenerateLoginCode(); showLoginCode = true; }
+    private void ToggleLoginCode() => showLoginCode = !showLoginCode;
+    private void ToggleRecordConnection() => showRecordConnection = !showRecordConnection;
+
+    private static CompanyDatabaseDefinition NewDefinition() => new() { Enabled = true };
+    private static CompanyDatabaseDefinition Clone(CompanyDatabaseDefinition source) => new()
+    {
+        Key = source.Key,
+        DatabaseName = source.DatabaseName,
+        DisplayName = source.DisplayName,
+        LoginCode = source.LoginCode,
+        LoginCodeHash = source.LoginCodeHash,
+        ConnectionString = source.ConnectionString,
+        Enabled = source.Enabled
+    };
+
+    public void Dispose()
+    {
+        cancellation?.Cancel();
+        cancellation?.Dispose();
+        editor.LoginCode = string.Empty;
+        editor.ConnectionString = string.Empty;
+        records.Clear();
+    }
+}

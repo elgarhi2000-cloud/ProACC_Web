@@ -1,0 +1,926 @@
+@inject IUserAccessService Access
+@using System.Globalization
+@using BlazorApp1.Services
+@inject IMasterDataService MasterDataService
+
+<div class="master-data-manager" dir="rtl">
+    @if (definition is null)
+    {
+        <div class="alert alert-info">جاري تحميل القسم...</div>
+    }
+    else if (!(UsesInlineEditor && editorOpen))
+    {
+        <div class="card master-data-card">
+            <div class="card-header master-data-header">
+                <div class="master-data-title">
+                    <span class="master-data-title-icon"><i class="bi @definition.Icon"></i></span>
+                    <div>
+                        <h5 class="mb-0">@(TitleOverride ?? definition.Title)</h5>
+                        <small>عرض وإدارة سجلات @definition.Title</small>
+                    </div>
+                </div>
+                @if (SectionKey is "employees" or "holidays" or "payroll")
+                {
+                    <ReportPrintButton Kind="@SectionKey" BuildReport="BuildPrintReport" Disabled="@(isLoading || isSaving || filteredRows.Count == 0)" ToolbarSection="@ToolbarSection" />
+                }
+                @if (CanCreate)
+                {
+                    <button class="btn btn-primary" type="button" @onclick="OpenCreate">
+                        <i class="bi bi-plus-lg"></i>
+                        إضافة سجل
+                    </button>
+                }
+                else if (rows.Count > 0)
+                {
+                    <button class="btn btn-primary" type="button" @onclick="() => OpenEdit(rows[0])">
+                        <i class="bi bi-pencil-square"></i>
+                        تعديل البيانات
+                    </button>
+                }
+            </div>
+
+            <div class="card-body">
+                @if (!string.IsNullOrWhiteSpace(message))
+                {
+                    <div class="alert @(messageIsError ? "alert-danger" : "alert-success") master-data-message">@message</div>
+                }
+
+                @if (IsCompaniesSection && rows.Count > 0)
+                {
+                    <div class="company-profile-banner">
+                        <div class="company-logo-frame">
+                            @if (!string.IsNullOrWhiteSpace(CompanyLogoSource))
+                            {
+                                <img src="@CompanyLogoSource" alt="شعار @CompanyDisplayName" />
+                            }
+                            else
+                            {
+                                <i class="bi bi-buildings" aria-hidden="true"></i>
+                            }
+                        </div>
+                        <div class="company-profile-info">
+                            <span>شعار المنشأة</span>
+                            <strong>@CompanyDisplayName</strong>
+                            <small>@(string.IsNullOrWhiteSpace(CompanyLogoSource) ? "لا يوجد شعار محفوظ" : "الشعار المحفوظ في بيانات المنشأة")</small>
+                        </div>
+                        <span class="company-edit-only-badge"><i class="bi bi-shield-lock"></i> التعديل فقط</span>
+                    </div>
+                }
+
+                @if (!IsCompaniesSection)
+                {
+                    <div class="section-search-bar master-data-toolbar">
+                        <input aria-label="ابحث في سجلات @definition.Title" type="search" class="form-control section-search-input" value="@searchText" @oninput="OnSearchInput"
+                               placeholder="ابحث في سجلات @definition.Title" />
+                        <button class="btn section-search-btn" type="button" @onclick="ApplySearch">
+                            <i class="bi bi-search"></i>بحث
+                        </button>
+                        <button class="btn records-refresh-btn" type="button" @onclick="LoadAsync" disabled="@isLoading">
+                            <i class="bi bi-arrow-repeat"></i>تحديث
+                        </button>
+                        @if (UseCardLayout)
+                        {
+                            <div class="view-mode-switch" role="group" aria-label="طريقة عرض السجلات">
+                                <button type="button" class="view-mode-btn @(cardViewActive ? "active" : null)"
+                                        title="عرض كبطاقات" aria-label="عرض السجلات كبطاقات" aria-pressed="@cardViewActive"
+                                        @onclick="() => SetCardView(true)">
+                                    <i class="bi bi-grid-3x3-gap"></i><span>بطاقات</span>
+                                </button>
+                                <button type="button" class="view-mode-btn @(!cardViewActive ? "active" : null)"
+                                        title="عرض كجدول بيانات" aria-label="عرض السجلات كجدول بيانات" aria-pressed="@(!cardViewActive)"
+                                        @onclick="() => SetCardView(false)">
+                                    <i class="bi bi-table"></i><span>جدول</span>
+                                </button>
+                            </div>
+                        }
+                        <span class="badge records-count-badge">@filteredRows.Count سجل</span>
+                    </div>
+                }
+
+                @if (rows.Count == 500 && !isLoading)
+                {
+                    <div class="alert alert-info" role="status">يعرض هذا القسم أحدث 500 سجل؛ البحث ضمن السجلات المحمّلة فقط.</div>
+                }
+
+                @if (isLoading)
+                {
+                    <div class="master-data-empty"><span class="spinner-border spinner-border-sm"></span> جاري تحميل السجلات...</div>
+                }
+                else if (filteredRows.Count == 0)
+                {
+                    <div class="master-data-empty"><i class="bi bi-inbox"></i><span>لا توجد سجلات مطابقة.</span></div>
+                }
+                else if (IsCompaniesSection)
+                {
+                    @foreach (var group in CompanyDisplayFields.GroupBy(item => GetCompanyGroup(item.Column)))
+                    {
+                        <section class="employee-editor-group">
+                            <h6 class="employee-group-title">@group.Key</h6>
+                            <div class="company-details-grid">
+                                @foreach (var field in group)
+                                {
+                                    <div class="company-detail-field @GetCompanyFieldClass(field)">
+                                        <span>@field.Label</span>
+                                        <strong>@FormatDisplay(rows[0], field)</strong>
+                                    </div>
+                                }
+                            </div>
+                        </section>
+                    }
+                }
+                else if (UseCardLayout && cardViewActive)
+                {
+                    <div class="master-records-grid">
+                        @foreach (var row in filteredRows)
+                        {
+                            <article class="master-record-card">
+                                <div class="employee-card-head">
+                                    <div class="employee-avatar" aria-hidden="true">@GetInitials(row)</div>
+                                    <div class="employee-identity">
+                                        <h6>@GetColumnDisplay(row, CardTitleColumn)</h6>
+                                        <span>@GetColumnDisplay(row, CardSubtitleColumn)</span>
+                                    </div>
+                                    <span class="employee-number">#@row.Id</span>
+                                </div>
+
+                                <div class="employee-card-body">
+                                    @foreach (var detail in CardDetails)
+                                    {
+                                        <div class="employee-detail @(detail.Wide ? "employee-detail-wide" : null)">
+                                            <i class="bi @detail.Icon"></i>
+                                            <span>@detail.Label</span>
+                                            <strong class="@(detail.Numeric ? "master-number" : null)">@GetColumnDisplay(row, detail.Column)</strong>
+                                        </div>
+                                    }
+                                </div>
+
+                                <div class="employee-card-footer">
+                                    <span class="employee-status-dot @(!IsCardRecordActive(row) ? "inactive" : null)"><i></i>@GetCardFooterText(row)</span>
+                                    <div class="entry-actions" role="group" aria-label="إجراءات السجل @GetColumnDisplay(row, CardTitleColumn)">
+                                        @if (EnableSelection)
+                                        {
+                                            <button type="button" class="action-btn action-select" title="اختيار الموظف" aria-label="اختيار الموظف" @onclick="() => SelectRowAsync(row)">
+                                                <i class="bi bi-check2-circle" aria-hidden="true"></i>
+                                            </button>
+                                        }
+                                        <button type="button" class="action-btn action-edit" title="تعديل الموظف" aria-label="تعديل الموظف" @onclick="() => OpenEdit(row)">
+                                            <i class="bi bi-pencil-square" aria-hidden="true"></i>
+                                        </button>
+                                        @if (CanDelete)
+                                        {
+                                            <button type="button" class="action-btn action-delete" title="حذف السجل" aria-label="حذف السجل" @onclick="() => OpenDelete(row)">
+                                                <i class="bi bi-trash" aria-hidden="true"></i>
+                                            </button>
+                                        }
+                                    </div>
+                                </div>
+                            </article>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="table-responsive master-data-table-wrap">
+                        <table class="table table-hover align-middle master-data-table">
+                            <thead>
+                            <tr>
+                                <th>
+                                    <button class="sort-header @(sortColumn == definition.KeyColumn ? "active" : null)" @onclick="() => SortBy(definition.KeyColumn)">
+                                        <span>@(IsPayrollList ? "رقم المسير" : "الرقم")</span><i class="@GetSortIcon(definition.KeyColumn)"></i>
+                                    </button>
+                                </th>
+                                @foreach (var field in TableFields)
+                                {
+                                    <th>
+                                        <button class="sort-header @(sortColumn == field.Column ? "active" : null)" @onclick="() => SortBy(field.Column)">
+                                            <span>@field.Label</span><i class="@GetSortIcon(field.Column)"></i>
+                                        </button>
+                                    </th>
+                                }
+                                <th class="actions-heading"><span class="actions-heading-label">إجراءات</span></th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            @foreach (var row in filteredRows)
+                            {
+                                <tr class="@(selectedRowId == row.Id ? "selected-master-row" : null)">
+                                    <td class="master-key-cell">#@row.Id</td>
+                                    @foreach (var field in TableFields)
+                                    {
+                                        <td class="@(field.Kind is MasterFieldKind.Decimal ? "text-nowrap master-number" : null)">
+                                            @if (field.Kind == MasterFieldKind.Boolean)
+                                            {
+                                                <span class="badge @(IsTrue(row, field.Column) ? "bg-success" : "bg-secondary")">@(IsTrue(row, field.Column) ? "نعم" : "لا")</span>
+                                            }
+                                            else
+                                            {
+                                                @FormatDisplay(row, field)
+                                            }
+                                        </td>
+                                    }
+                                    <td>
+                                        <div class="entry-actions master-actions">
+                                            @if (EnableSelection)
+                                            {
+                                                <button type="button" class="action-btn action-select" title="اختيار السجل" aria-label="اختيار السجل رقم @row.Id" @onclick="() => SelectRowAsync(row)">
+                                                    <i class="bi bi-check2-circle" aria-hidden="true"></i>
+                                                </button>
+                                            }
+                                            <button type="button" class="action-btn action-edit" title="تعديل السجل" aria-label="تعديل السجل رقم @row.Id" @onclick="() => OpenEdit(row)">
+                                                <i class="bi bi-pencil-square" aria-hidden="true"></i>
+                                            </button>
+                                            @if (CanDelete)
+                                            {
+                                                <button type="button" class="action-btn action-delete" title="حذف السجل" aria-label="حذف السجل رقم @row.Id" @onclick="() => OpenDelete(row)">
+                                                    <i class="bi bi-trash" aria-hidden="true"></i>
+                                                </button>
+                                            }
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@if (editorOpen && definition is not null)
+{
+    <div class="@(UsesInlineEditor ? "employee-page-editor" : "crud-overlay")" dir="rtl" role="@(UsesInlineEditor ? "region" : "dialog")" aria-modal="@(UsesInlineEditor ? null : "true")" aria-label="@(editingId is null ? "إضافة سجل" : "تعديل سجل")">
+        <div class="crud-card master-editor-card">
+            <div class="crud-header">
+                <div>
+                    <h5 class="mb-1">@(IsEmployeesSection ? (editingId is null ? "إضافة موظف جديد" : "تعديل بيانات الموظف") : IsCompaniesSection ? "تعديل بيانات المنشأة" : IsContactCards ? (editingId is null ? "إضافة جهة تعامل جديدة" : "تعديل جهة التعامل") : (editingId is null ? "إضافة سجل جديد" : "تعديل السجل"))</h5>
+                    <small>@(IsEmployeesSection ? "أكمل بيانات الموظف حسب المجموعات أدناه. الحقول المميزة بـ * مطلوبة." : definition.Title)</small>
+                </div>
+                <button class="btn btn-sm btn-light" type="button" @onclick="CloseEditor" disabled="@isSaving" aria-label="@(UsesInlineEditor ? "العودة إلى البيانات" : "إغلاق")"><i class="bi @(UsesInlineEditor ? "bi-arrow-right" : "bi-x-lg")"></i>@(UsesInlineEditor ? "العودة إلى البيانات" : "")</button>
+            </div>
+            <div class="crud-body master-editor-body">
+                @if (!string.IsNullOrWhiteSpace(editorError))
+                {
+                    <div class="alert alert-danger master-data-message">@editorError</div>
+                }
+                @if (!definition.KeyIsIdentity && editingId is null)
+                {
+                    <div class="master-field">
+                        <label class="form-label">رقم السجل <span class="text-danger">*</span></label>
+                        <input type="number" class="form-control" value="@editorKeyValue" @oninput="e => editorKeyValue = e.Value?.ToString() ?? string.Empty" />
+                    </div>
+                }
+
+                @foreach (var group in EditorGroups)
+                {
+                    <section class="@(IsGroupedEditor ? "employee-editor-group" : null)">
+                        @if (IsGroupedEditor)
+                        {
+                            <h6 class="employee-group-title">@group.Key</h6>
+                        }
+                <div class="master-editor-grid">
+                    @if (IsContactCards && group.Key == "البيانات الأساسية")
+                    {
+                        <div class="master-field">
+                            <label class="form-label" for="card-record-id">معرّف السجل</label>
+                            <input id="card-record-id" class="form-control" value="@(editingId ?? "تلقائي عند الحفظ")" readonly />
+                        </div>
+                    }
+                    @foreach (var field in group)
+                    {
+                        <div class="master-field @(field.Kind is MasterFieldKind.Multiline or MasterFieldKind.Image ? "master-field-wide" : null)">
+                            <label class="form-label" for="@($"master-{SectionKey}-{field.Column}")">
+                                @field.Label
+                                @if (field.Required && !(editingId is not null && field.Kind == MasterFieldKind.Password))
+                                {
+                                    <span class="text-danger">*</span>
+                                }
+                            </label>
+
+                            @switch (field.Kind)
+                            {
+                                case MasterFieldKind.Boolean:
+                                    <label class="master-switch">
+                                        <input id="@($"master-{SectionKey}-{field.Column}")" type="checkbox" disabled="@(SectionKey == "payroll" && field.Column == "Archive" && !Access.Has("Archive"))" checked="@GetEditorBool(field.Column)" @onchange="e => SetEditorBool(field.Column, e)" />
+                                        <span>@(GetEditorBool(field.Column) ? "مفعّل" : "غير مفعّل")</span>
+                                    </label>
+                                    break;
+                                case MasterFieldKind.Multiline:
+                                    <textarea id="@($"master-{SectionKey}-{field.Column}")" class="form-control" rows="3" value="@GetEditorValue(field.Column)" @oninput="e => SetEditorValue(field.Column, e)"></textarea>
+                                    break;
+                                case MasterFieldKind.Date:
+                                    <input id="@($"master-{SectionKey}-{field.Column}")" type="date" class="form-control" value="@GetEditorValue(field.Column)" @oninput="e => SetEditorValue(field.Column, e)" />
+                                    break;
+                                case MasterFieldKind.Integer:
+                                    <input id="@($"master-{SectionKey}-{field.Column}")" type="number" step="1" class="form-control" value="@GetEditorValue(field.Column)" @oninput="e => SetEditorValue(field.Column, e)" />
+                                    break;
+                                case MasterFieldKind.Decimal:
+                                    <input id="@($"master-{SectionKey}-{field.Column}")" type="number" step="0.01" class="form-control" value="@GetEditorValue(field.Column)" @oninput="e => SetEditorValue(field.Column, e)" />
+                                    break;
+                                case MasterFieldKind.Password:
+                                    <input id="@($"master-{SectionKey}-{field.Column}")" type="password" class="form-control" value="@GetEditorValue(field.Column)" @oninput="e => SetEditorValue(field.Column, e)"
+                                           placeholder="@(editingId is null ? "أدخل كلمة المرور" : "اتركها فارغة للاحتفاظ بكلمة المرور الحالية")" autocomplete="new-password" />
+                                    break;
+                                case MasterFieldKind.Lookup:
+                                    @if (field.LookupTable == "ACC")
+                                    {
+                                        <AccountLookupSearch InputId="@($"master-{SectionKey}-{field.Column}")" Label="@field.Label"
+                                                             Options="@GetLookupOptions(field.Column)" Value="@GetEditorValue(field.Column)"
+                                                             ValueChanged="@(value => editorValues[field.Column] = value)" Disabled="@isSaving" />
+                                    }
+                                    else
+                                    {
+                                    <select id="@($"master-{SectionKey}-{field.Column}")" class="form-select" value="@GetEditorValue(field.Column)" @onchange="e => SetEditorValue(field.Column, e)">
+                                        <option value="">-- اختر --</option>
+                                        @foreach (var option in GetLookupOptions(field.Column))
+                                        {
+                                            <option value="@option.Value">@option.Label</option>
+                                        }
+                                    </select>
+                                    }
+                                    break;
+                                case MasterFieldKind.Image:
+                                    <div class="company-logo-editor">
+                                        <div class="company-logo-editor-preview">
+                                            @if (!string.IsNullOrWhiteSpace(GetEditorValue(field.Column)))
+                                            {
+                                                <img src="@GetEditorValue(field.Column)" alt="معاينة شعار المنشأة" />
+                                            }
+                                            else
+                                            {
+                                                <i class="bi bi-image"></i>
+                                            }
+                                        </div>
+                                        <div class="company-logo-editor-controls">
+                                            <strong>اختيار شعار جديد</strong>
+                                            <small>PNG أو JPG أو GIF أو BMP أو WEBP، وبحجم لا يتجاوز 5 ميجابايت.</small>
+                                            <InputFile class="form-control" accept="image/png,image/jpeg,image/gif,image/bmp,image/webp"
+                                                       OnChange="@(e => OnImageSelectedAsync(field.Column, e))" />
+                                        </div>
+                                    </div>
+                                    break;
+                                default:
+                                    <input id="@($"master-{SectionKey}-{field.Column}")" type="text" class="form-control" value="@GetEditorValue(field.Column)" @oninput="e => SetEditorValue(field.Column, e)" />
+                                    break;
+                            }
+                        </div>
+                    }
+                </div>
+                    </section>
+                }
+            </div>
+            <div class="crud-footer">
+                <button class="btn btn-light" type="button" @onclick="CloseEditor" disabled="@isSaving">إلغاء</button>
+                <button class="btn btn-primary" type="button" @onclick="SaveAsync" disabled="@isSaving">
+                    <i class="bi bi-check2-circle"></i>@(isSaving ? "جاري الحفظ..." : "حفظ")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (deleteRow is not null && definition is not null)
+{
+    <div class="crud-overlay" role="alertdialog" aria-modal="true" aria-label="تأكيد الحذف">
+        <div class="crud-card master-delete-card">
+            <div class="crud-header"><h5 class="mb-0">تأكيد حذف السجل</h5></div>
+            <div class="crud-body">
+                <p class="mb-2">هل تريد حذف السجل رقم <strong>#@deleteRow.Id</strong> من @definition.Title؟</p>
+                <small class="text-muted">لن يتم الحذف إذا كان السجل مرتبطًا ببيانات أخرى.</small>
+            </div>
+            <div class="crud-footer">
+                <button class="btn btn-light" @onclick="CloseDelete">إلغاء</button>
+                <button class="btn btn-danger" @onclick="DeleteAsync" disabled="@isSaving"><i class="bi bi-trash"></i>حذف</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .master-data-card { overflow: visible; }
+    .master-data-header { justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+    .master-data-title { min-width: 0; display: flex; align-items: center; gap: 11px; }
+    .master-data-title-icon { width: 40px; height: 40px; display: grid; place-items: center; flex: 0 0 40px; color: var(--q-primary); background: var(--q-primary-soft); border-radius: 10px; }
+    .master-data-title small { color: var(--q-muted); }
+    .master-data-toolbar { margin-bottom: 14px; }
+    .view-mode-switch { min-height: 40px; padding: 3px; display: inline-flex; align-items: center; gap: 2px; background: #f3f4f7; border: 1px solid var(--q-border); border-radius: 9px; }
+    .view-mode-btn { min-height: 32px; padding: 5px 9px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; color: var(--q-muted); background: transparent; border: 0; border-radius: 7px; font-family: inherit; font-size: .73rem; font-weight: 750; white-space: nowrap; transition: color .18s ease, background-color .18s ease, box-shadow .18s ease; }
+    .view-mode-btn:hover { color: var(--q-primary); }
+    .view-mode-btn.active { color: var(--q-primary); background: #fff; box-shadow: 0 2px 7px rgba(15, 23, 42, .09); }
+    .view-mode-btn:focus-visible { outline: 3px solid rgba(79, 70, 229, .18); outline-offset: 1px; }
+    .master-data-message { margin-bottom: 14px; }
+    .company-profile-banner { margin-bottom: 16px; padding: 15px; display: flex; align-items: center; gap: 14px; background: linear-gradient(135deg, #faf9ff, #fff); border: 1px solid #e4e0f5; border-radius: 12px; }
+    .company-logo-frame { width: 180px; height: 130px; display: grid; place-items: center; flex: 0 0 180px; overflow: hidden; background: #fff; border: 1px solid var(--q-border); border-radius: 14px; box-shadow: 0 7px 18px rgba(15, 23, 42, .08); }
+    .company-logo-frame img { width: 100%; height: 100%; padding: 4px; display: block; object-fit: contain; }
+    .company-logo-frame i { color: var(--q-primary); font-size: 2.6rem; }
+    .company-profile-info { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 3px; }
+    .company-profile-info span, .company-profile-info small { color: var(--q-muted); font-size: .72rem; }
+    .company-profile-info strong { overflow: hidden; color: var(--q-ink); font-size: 1rem; text-overflow: ellipsis; white-space: nowrap; }
+    .company-edit-only-badge { padding: 6px 9px; color: var(--q-primary); background: var(--q-primary-soft); border-radius: 8px; font-size: .72rem; font-weight: 800; white-space: nowrap; }
+    .company-details-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .company-detail-field { min-width: 0; min-height: 76px; padding: 13px 14px; display: flex; flex-direction: column; justify-content: center; gap: 7px; background: #fbfcfd; border: 1px solid var(--q-border); border-radius: 10px; }
+    .company-detail-field span { color: var(--q-muted); font-size: .7rem; font-weight: 700; }
+    .company-detail-field strong { overflow-wrap: anywhere; color: var(--q-text); font-size: .82rem; font-weight: 750; line-height: 1.65; }
+    .company-detail-primary { background: var(--q-primary-faint); border-color: #e2def5; }
+    .company-detail-primary strong { color: var(--q-primary-dark); font-size: .92rem; }
+    .company-detail-wide { grid-column: 1 / -1; }
+    .master-data-empty { min-height: 170px; display: flex; align-items: center; justify-content: center; gap: 9px; color: var(--q-muted); }
+    .master-data-empty > i { font-size: 1.3rem; }
+    .master-data-table-wrap { max-height: 520px; }
+    .master-data-table thead { position: sticky; top: 0; z-index: 2; }
+    .master-data-table td { min-width: 110px; }
+    .master-data-table td:last-child { min-width: 132px; }
+    .master-key-cell { direction: ltr; color: var(--q-muted); font-weight: 700; text-align: right; }
+    .master-number { direction: ltr; text-align: right; font-variant-numeric: tabular-nums; }
+    .master-actions { justify-content: center; }
+    .selected-master-row td { background: var(--q-primary-faint) !important; }
+    .master-records-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 16px; }
+    .master-record-card { min-width: 0; overflow: hidden; background: #fff; border: 1px solid var(--q-border); border-radius: 12px; box-shadow: 0 4px 14px rgba(15, 23, 42, .045); transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease; }
+    .master-record-card:hover { border-color: #d6d0f4; box-shadow: 0 10px 24px rgba(45, 38, 112, .09); transform: translateY(-2px); }
+    .employee-card-head { min-height: 82px; padding: 15px; display: flex; align-items: center; gap: 11px; background: linear-gradient(135deg, #faf9ff, #fff); border-bottom: 1px solid var(--q-border); }
+    .employee-avatar { width: 48px; height: 48px; display: grid; place-items: center; flex: 0 0 48px; color: #fff; background: linear-gradient(135deg, var(--q-primary), #7567e8); border-radius: 13px; font-size: .95rem; font-weight: 800; box-shadow: 0 6px 13px rgba(79, 70, 229, .2); }
+    .employee-identity { min-width: 0; flex: 1; }
+    .employee-identity h6 { margin: 0 0 4px; overflow: hidden; color: var(--q-ink); font-size: .92rem; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+    .employee-identity span { display: block; overflow: hidden; color: var(--q-muted); font-size: .76rem; text-overflow: ellipsis; white-space: nowrap; }
+    .employee-number { align-self: flex-start; padding: 4px 7px; color: var(--q-primary); background: var(--q-primary-soft); border-radius: 7px; direction: ltr; font-size: .7rem; font-weight: 800; }
+    .employee-card-body { padding: 14px 15px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 14px; }
+    .employee-detail { min-width: 0; display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 6px; align-items: center; }
+    .employee-detail > i { grid-row: 1 / 3; color: var(--q-primary); font-size: .9rem; }
+    .employee-detail span { color: var(--q-muted); font-size: .67rem; }
+    .employee-detail strong { overflow: hidden; color: var(--q-text); font-size: .76rem; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+    .employee-detail-wide { grid-column: 1 / -1; }
+    .employee-card-footer { min-height: 54px; padding: 8px 12px 8px 15px; display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #fbfcfd; border-top: 1px solid var(--q-border); }
+    .employee-status-dot { min-width: 0; display: inline-flex; align-items: center; gap: 6px; overflow: hidden; color: var(--q-muted); font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
+    .employee-status-dot i { width: 7px; height: 7px; flex: 0 0 7px; background: var(--q-success); border-radius: 50%; box-shadow: 0 0 0 3px rgba(18, 151, 118, .1); }
+    .employee-status-dot.inactive i { background: var(--q-muted); box-shadow: 0 0 0 3px rgba(100, 116, 139, .1); }
+    .employee-page-editor .master-editor-card { width: 100%; max-height: none; overflow: visible; box-shadow: none; }
+    .employee-page-editor .master-editor-body { max-height: none; overflow: visible; background: #f8fafc; }
+    .employee-page-editor .crud-header { gap: 16px; flex-wrap: wrap; padding: 20px; }
+    .employee-page-editor .crud-header small { color: var(--q-muted); }
+    .employee-editor-group { padding: 20px; margin-bottom: 18px; background: #fff; border: 1px solid var(--q-border); border-radius: 12px; }
+    .employee-editor-group:last-child { margin-bottom: 0; }
+    .employee-group-title { margin: 0 0 18px; padding-bottom: 12px; border-bottom: 1px solid var(--q-border); color: var(--q-primary); font-size: 1rem; font-weight: 750; }
+    .employee-page-editor .master-editor-grid { gap: 20px 24px; }
+    .employee-page-editor .crud-footer { position: sticky; bottom: 0; z-index: 5; padding: 14px 20px; box-shadow: 0 -4px 12px rgba(15, 23, 42, .04); }
+    .master-editor-card { width: min(920px, 96vw); }
+    .master-editor-body { max-height: calc(100vh - 190px); overflow-y: auto; }
+    .master-editor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .master-field { min-width: 0; }
+    .master-field-wide { grid-column: 1 / -1; }
+    .company-logo-editor { padding: 14px; display: flex; align-items: center; gap: 16px; background: #fafbfc; border: 1px solid var(--q-border); border-radius: 11px; }
+    .company-logo-editor-preview { width: 190px; height: 135px; display: grid; place-items: center; flex: 0 0 190px; overflow: hidden; background: #fff; border: 1px solid var(--q-border); border-radius: 11px; }
+    .company-logo-editor-preview img { width: 100%; height: 100%; padding: 4px; object-fit: contain; }
+    .company-logo-editor-preview i { color: var(--q-muted); font-size: 2rem; }
+    .company-logo-editor-controls { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 7px; }
+    .company-logo-editor-controls strong { color: var(--q-text); font-size: .84rem; }
+    .company-logo-editor-controls small { color: var(--q-muted); font-size: .7rem; }
+    .master-switch { min-height: 41px; padding: 8px 12px; display: flex; align-items: center; gap: 9px; background: var(--q-primary-faint); border: 1px solid var(--q-border); border-radius: 8px; cursor: pointer; }
+    .master-switch input { width: 18px; height: 18px; accent-color: var(--q-primary); }
+    .master-delete-card { width: min(440px, 94vw); }
+    @@media (max-width: 700px) {
+        .master-editor-grid { grid-template-columns: 1fr; }
+        .master-field-wide { grid-column: auto; }
+        .master-data-header .btn-primary { width: 100%; }
+        .master-records-grid { grid-template-columns: 1fr; }
+        .view-mode-switch { order: 5; width: 100%; }
+        .view-mode-btn { flex: 1; }
+        .company-profile-banner { align-items: flex-start; flex-wrap: wrap; }
+        .company-edit-only-badge { margin-right: 0; }
+        .company-details-grid { grid-template-columns: 1fr; }
+        .company-detail-wide { grid-column: auto; }
+        .company-logo-frame { width: 145px; height: 105px; flex-basis: 145px; }
+        .company-logo-editor { align-items: stretch; flex-direction: column; }
+        .company-logo-editor-preview { width: 100%; height: 170px; flex-basis: 170px; }
+    }
+</style>
+
+@code {
+    [Parameter] public object? ToolbarSection { get; set; }
+    [Parameter, EditorRequired] public string SectionKey { get; set; } = string.Empty;
+    [Parameter] public string? TitleOverride { get; set; }
+    [Parameter] public bool EnableSelection { get; set; }
+    [Parameter] public bool UseCardLayout { get; set; }
+    [Parameter] public EventCallback<MasterDataRowVm> RowSelected { get; set; }
+    [Parameter] public EventCallback CreateRequested { get; set; }
+    [Parameter] public EventCallback<MasterDataRowVm> EditRequested { get; set; }
+    [Parameter] public string? FilterColumn { get; set; }
+    [Parameter] public string? FilterValue { get; set; }
+    [Parameter] public IReadOnlyDictionary<string, string?>? FixedValues { get; set; }
+
+    private MasterSectionDefinition? definition;
+    private PrintReport BuildPrintReport()
+    {
+        var fields = TableFields.ToArray();
+        return new PrintReport { Title = definition!.Title, Landscape = fields.Length > 5,
+            Description = $"السجلات المطابقة للبحث: {searchText} | العدد: {filteredRows.Count}",
+            Tables = [new PrintTable { Columns = new[] { "الرقم" }.Concat(fields.Select(f => f.Label)).ToArray(),
+                Rows = filteredRows.Select(row => new string?[] { row.Id }.Concat(fields.Select(f => FormatDisplay(row, f))).ToArray()).ToList() }] };
+    }
+    private List<MasterDataRowVm> rows = new();
+    private List<MasterDataRowVm> filteredRows = new();
+    private Dictionary<string, IReadOnlyList<MasterLookupOptionVm>> lookups = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, string?> editorValues = new(StringComparer.OrdinalIgnoreCase);
+    private string editorKeyValue = string.Empty;
+    private string? editingId;
+    private MasterDataRowVm? deleteRow;
+    private string? selectedRowId;
+    private string searchText = string.Empty;
+    private string sortColumn = string.Empty;
+    private bool sortAscending = true;
+    private bool isLoading;
+    private bool isSaving;
+    private bool editorOpen;
+    private bool cardViewActive = true;
+    private string? editorError;
+    private string? message;
+    private bool messageIsError;
+    private string loadedSignature = string.Empty;
+
+    private IEnumerable<MasterFieldDefinition> TableFields
+        => IsPayrollList ? PayrollListFields
+            : definition?.Fields.Where(x => x.ShowInTable).Take(7) ?? Enumerable.Empty<MasterFieldDefinition>();
+
+    private bool IsPayrollList => string.Equals(SectionKey, "payroll", StringComparison.OrdinalIgnoreCase) && EditRequested.HasDelegate;
+    private static readonly MasterFieldDefinition[] PayrollListFields =
+    [
+        new("PayrollDate", "تاريخ المسير", MasterFieldKind.Date),
+        new("PayrollDesc", "البيان"),
+        new("Net", "صافي الراتب", MasterFieldKind.Decimal)
+    ];
+
+    private IEnumerable<MasterFieldDefinition> EditableFields
+        => definition?.Fields.Where(x => FixedValues is null || !FixedValues.ContainsKey(x.Column))
+               ?? Enumerable.Empty<MasterFieldDefinition>();
+
+    private bool IsEmployeesSection => string.Equals(SectionKey, "employees", StringComparison.OrdinalIgnoreCase);
+    private IEnumerable<IGrouping<string, MasterFieldDefinition>> EditorGroups
+        => EditableFields.GroupBy(item => IsEmployeesSection ? GetEmployeeGroup(item.Column) : IsContactCards ? GetCardGroup(item.Column) : IsCompaniesSection ? GetCompanyGroup(item.Column) : string.Empty);
+
+    private bool UsesInlineEditor => IsEmployeesSection || IsCompaniesSection;
+    private bool IsGroupedEditor => UsesInlineEditor || IsContactCards;
+    private static string GetCompanyGroup(string column) => column switch
+    {
+        "Comp" or "CompTel" or "CompAddress" => "البيانات الأساسية والتواصل",
+        "VAT" or "CR" => "البيانات النظامية والضريبية",
+        "Pic" or "Skin" => "الشعار والمظهر",
+        "Header" or "Footer" => "تنسيق التقارير",
+        "DBPath" or "ReportsPath" or "AttachPath" or "BackupPath" => "مسارات الملفات والنسخ الاحتياطي",
+        _ => "ملاحظات"
+    };
+    private static string GetCardGroup(string column) => column switch
+    {
+        "CardNum" or "Title" or "CardName" or "CardType" or "Active" => "البيانات الأساسية",
+        "Address1" or "Address2" => "العناوين",
+        "Phone1" or "Phone2" or "Fax" or "Email" or "Contact" => "بيانات التواصل",
+        "Ref1" or "Ref2" or "VAT" => "المراجع والبيانات الضريبية",
+        _ => "ملاحظات"
+    };
+
+    private static string GetEmployeeGroup(string column) => column switch
+    {
+        "EmpCode" or "EmpName" or "JobTitle" or "Department" or "Section" or "EmpStatus" => "البيانات الأساسية والوظيفية",
+        "Gender" or "Nationality" or "Religion" or "BirthDate" or "Marital" or "ChildNo" => "البيانات الشخصية والعائلية",
+        "Education" or "Qualification" or "Specialisation" or "QDate" or "QGrade" => "التعليم والمؤهلات",
+        "CardNo" or "IDType" or "CardDate" or "CardPlace" or "CardExpire" => "بيانات الهوية",
+        "PassNo" or "PassDate" or "PassPlace" or "PassExpire" => "بيانات جواز السفر",
+        "ContractType" or "ContractDate" or "HiringDate" or "EndDate" or "WorkHours" or "HolidayBalance" => "العقد والعمل والإجازات",
+        "BasicSalary" or "HousAllow" or "TransAllow" or "OtherAllow" or "Insurance" or "SalaryStatus" => "الراتب والبدلات",
+        "AccountNo" or "BankName" or "BankBranch" => "الحساب البنكي",
+        "Mobile" or "Email" or "Address1" => "بيانات التواصل والعنوان",
+        _ => "ملاحظات وبيانات إضافية"
+    };
+
+    private bool IsCompaniesSection => string.Equals(SectionKey, "companies", StringComparison.OrdinalIgnoreCase);
+    private bool CanCreate => !IsCompaniesSection;
+    private bool CanDelete => !IsCompaniesSection;
+    private string? CompanyLogoSource => rows.FirstOrDefault()?.Values.GetValueOrDefault("Pic");
+    private string CompanyDisplayName => rows.Count == 0 ? "بيانات المنشأة" : GetColumnDisplay(rows[0], "Comp", "بيانات المنشأة");
+    private IEnumerable<MasterFieldDefinition> CompanyDisplayFields
+        => definition?.Fields.Where(x => x.Kind != MasterFieldKind.Image) ?? Enumerable.Empty<MasterFieldDefinition>();
+    private bool IsContactCards => string.Equals(SectionKey, "cards", StringComparison.OrdinalIgnoreCase);
+    private string CardTitleColumn => IsContactCards ? "CardName" : "EmpName";
+    private string CardSubtitleColumn => IsContactCards ? "CardType" : "JobTitle";
+    private IReadOnlyList<CardDetailDefinition> CardDetails => IsContactCards
+        ?
+        [
+            new("CardNum", "رقم الجهة", "bi-upc-scan"),
+            new("Phone1", "الهاتف", "bi-telephone"),
+            new("Email", "البريد الإلكتروني", "bi-envelope"),
+            new("Contact", "مسؤول الاتصال", "bi-person-lines-fill"),
+            new("VAT", "الرقم الضريبي", "bi-receipt", Wide: true)
+        ]
+        :
+        [
+            new("EmpCode", "كود الموظف", "bi-upc-scan"),
+            new("Department", "الإدارة", "bi-building"),
+            new("EmpStatus", "الحالة", "bi-person-check"),
+            new("BasicSalary", "الراتب الأساسي", "bi-cash-stack", Numeric: true),
+            new("Mobile", "الجوال", "bi-phone", Wide: true)
+        ];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var signature = $"{SectionKey}|{FilterColumn}|{FilterValue}";
+        if (signature == loadedSignature)
+        {
+            return;
+        }
+        loadedSignature = signature;
+        definition = MasterDataService.GetSection(SectionKey);
+        sortColumn = definition.KeyColumn;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        if (definition is null) return;
+        isLoading = true;
+        message = null;
+        try
+        {
+            rows = (IsPayrollList
+                ? await MasterDataService.GetPreviousPayrollsAsync()
+                : await MasterDataService.GetRowsAsync(SectionKey, FilterColumn, FilterValue)).ToList();
+            lookups = await MasterDataService.GetLookupsAsync(SectionKey);
+            ApplySearch();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex);
+            message = "تعذر تحميل السجلات؛ حاول مرة أخرى أو راجع مسؤول النظام.";
+            messageIsError = true;
+            rows.Clear();
+            filteredRows.Clear();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task OpenCreate()
+    {
+        if (CreateRequested.HasDelegate)
+        {
+            await CreateRequested.InvokeAsync();
+            return;
+        }
+        editorError = null;
+        editingId = null;
+        editorKeyValue = string.Empty;
+        editorValues = definition?.Fields.ToDictionary(
+            x => x.Column,
+            x => x.Kind == MasterFieldKind.Boolean ? "false" : null,
+            StringComparer.OrdinalIgnoreCase) ?? new(StringComparer.OrdinalIgnoreCase);
+        if (string.Equals(SectionKey, "periods", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var sequenceField in new[] { "GLID", "RCID", "PMID", "SalesID", "PurchID", "PayrollID" })
+            {
+                editorValues[sequenceField] = "1";
+            }
+        }
+        ApplyFixedValues();
+        editorOpen = true;
+        message = null;
+    }
+
+    private async Task OpenEdit(MasterDataRowVm row)
+    {
+        if (EditRequested.HasDelegate)
+        {
+            await EditRequested.InvokeAsync(row);
+            return;
+        }
+        editorError = null;
+        editingId = row.Id;
+        editorKeyValue = row.Id;
+        editorValues = new Dictionary<string, string?>(row.Values, StringComparer.OrdinalIgnoreCase);
+        ApplyFixedValues();
+        editorOpen = true;
+        message = null;
+    }
+
+    private void CloseEditor() => editorOpen = false;
+    private void OpenDelete(MasterDataRowVm row) => deleteRow = row;
+    private void CloseDelete() => deleteRow = null;
+
+    private async Task SaveAsync()
+    {
+        if (definition is null || isSaving) return;
+        editorError = null;
+        isSaving = true;
+        if (!definition.KeyIsIdentity && editingId is null)
+        {
+            editorValues[definition.KeyColumn] = editorKeyValue;
+        }
+        ApplyFixedValues();
+        var result = await MasterDataService.SaveAsync(SectionKey, editingId, editorValues);
+        isSaving = false;
+        message = result.Message;
+        messageIsError = !result.Success;
+        if (!result.Success)
+        {
+            editorError = result.Message;
+            return;
+        }
+        editorOpen = false;
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (deleteRow is null) return;
+        isSaving = true;
+        var result = await MasterDataService.DeleteAsync(SectionKey, deleteRow.Id);
+        isSaving = false;
+        message = result.Message;
+        messageIsError = !result.Success;
+        if (result.Success)
+        {
+            deleteRow = null;
+            await LoadAsync();
+        }
+    }
+
+    private async Task SelectRowAsync(MasterDataRowVm row)
+    {
+        selectedRowId = row.Id;
+        if (RowSelected.HasDelegate)
+        {
+            await RowSelected.InvokeAsync(row);
+        }
+    }
+
+    private void ApplyFixedValues()
+    {
+        if (FixedValues is null) return;
+        foreach (var pair in FixedValues)
+        {
+            editorValues[pair.Key] = pair.Value;
+        }
+    }
+
+    private void OnSearchInput(ChangeEventArgs e)
+    {
+        searchText = e.Value?.ToString() ?? string.Empty;
+        ApplySearch();
+    }
+
+    private void ApplySearch()
+    {
+        var term = searchText.Trim();
+        filteredRows = string.IsNullOrWhiteSpace(term)
+            ? rows.ToList()
+            : rows.Where(row => row.Id.Contains(term, StringComparison.OrdinalIgnoreCase)
+                                || (IsPayrollList ? TableFields : definition!.Fields).Any(field => FormatDisplay(row, field).Contains(term, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+        ApplySort();
+    }
+
+    private void SortBy(string column)
+    {
+        if (sortColumn == column) sortAscending = !sortAscending;
+        else { sortColumn = column; sortAscending = true; }
+        ApplySort();
+    }
+
+    private void SetCardView(bool useCards) => cardViewActive = useCards;
+
+    private void ApplySort()
+    {
+        if (definition is null) return;
+        var field = (IsPayrollList ? TableFields : definition.Fields).FirstOrDefault(x => x.Column.Equals(sortColumn, StringComparison.OrdinalIgnoreCase));
+        Func<MasterDataRowVm, object> keySelector = row => GetSortValue(row, field);
+        filteredRows = sortAscending
+            ? filteredRows.OrderBy(keySelector).ToList()
+            : filteredRows.OrderByDescending(keySelector).ToList();
+    }
+
+    private object GetSortValue(MasterDataRowVm row, MasterFieldDefinition? field)
+    {
+        if (field is null) return long.TryParse(row.Id, out var id) ? id : row.Id;
+        row.Values.TryGetValue(field.Column, out var value);
+        return field.Kind switch
+        {
+            MasterFieldKind.Integer or MasterFieldKind.Decimal or MasterFieldKind.Lookup
+                => decimal.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out var number) ? number : 0m,
+            MasterFieldKind.Date => DateTime.TryParse(value, out var date) ? date : DateTime.MinValue,
+            MasterFieldKind.Boolean => string.Equals(value, "true", StringComparison.OrdinalIgnoreCase),
+            _ => value ?? string.Empty
+        };
+    }
+
+    private string FormatDisplay(MasterDataRowVm row, MasterFieldDefinition field)
+    {
+        row.Values.TryGetValue(field.Column, out var value);
+        if (string.IsNullOrWhiteSpace(value)) return "-";
+        if (field.Kind == MasterFieldKind.Password) return "••••••";
+        if (field.Kind == MasterFieldKind.Image) return "شعار المنشأة";
+        if (field.Kind == MasterFieldKind.Lookup)
+        {
+            return GetLookupOptions(field.Column).FirstOrDefault(x => x.Value == value)?.Label ?? value;
+        }
+        if (field.Kind == MasterFieldKind.Decimal
+            && decimal.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out var decimalValue))
+        {
+            return decimalValue.ToString("N2");
+        }
+        if (field.Kind == MasterFieldKind.Date && DateTime.TryParse(value, out var dateValue))
+        {
+            return dateValue.ToString("yyyy/MM/dd");
+        }
+        return value;
+    }
+
+    private string GetColumnDisplay(MasterDataRowVm row, string column, string emptyValue = "-")
+    {
+        if (definition is null) return emptyValue;
+        var field = definition.Fields.FirstOrDefault(x => x.Column.Equals(column, StringComparison.OrdinalIgnoreCase));
+        if (field is null) return emptyValue;
+        var value = FormatDisplay(row, field);
+        return value == "-" ? emptyValue : value;
+    }
+
+    private static string GetCompanyFieldClass(MasterFieldDefinition field)
+    {
+        if (field.Column.Equals("Comp", StringComparison.OrdinalIgnoreCase)) return "company-detail-primary";
+        return field.Kind == MasterFieldKind.Multiline
+               || field.Column is "Header" or "Footer" or "DBPath" or "ReportsPath" or "AttachPath" or "BackupPath"
+            ? "company-detail-wide"
+            : string.Empty;
+    }
+
+    private string GetInitials(MasterDataRowVm row)
+    {
+        var name = GetColumnDisplay(row, CardTitleColumn, IsContactCards ? "ج" : "م");
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return string.Concat(parts.Take(2).Select(x => x[0]));
+    }
+
+    private string GetCardFooterText(MasterDataRowVm row)
+        => IsContactCards
+            ? (IsCardRecordActive(row) ? "جهة نشطة" : "جهة غير نشطة")
+            : GetColumnDisplay(row, "SalaryStatus", "بيانات الموظف");
+
+    private bool IsCardRecordActive(MasterDataRowVm row)
+    {
+        if (!IsContactCards) return true;
+        return row.Values.TryGetValue("Active", out var value)
+               && string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private IReadOnlyList<MasterLookupOptionVm> GetLookupOptions(string column)
+        => lookups.TryGetValue(column, out var options) ? options : Array.Empty<MasterLookupOptionVm>();
+
+    private string GetEditorValue(string column)
+        => editorValues.TryGetValue(column, out var value) ? value ?? string.Empty : string.Empty;
+
+    private bool GetEditorBool(string column)
+        => bool.TryParse(GetEditorValue(column), out var value) && value;
+
+    private void SetEditorValue(string column, ChangeEventArgs e) => editorValues[column] = e.Value?.ToString();
+    private void SetEditorBool(string column, ChangeEventArgs e) => editorValues[column] = (e.Value as bool? ?? false).ToString().ToLowerInvariant();
+
+    private async Task OnImageSelectedAsync(string column, InputFileChangeEventArgs e)
+    {
+        const long maxImageSize = 5 * 1024 * 1024;
+        var file = e.File;
+        var allowedTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "image/png", "image/jpeg", "image/gif", "image/bmp", "image/webp"
+        };
+
+        if (!allowedTypes.Contains(file.ContentType))
+        {
+            editorError = "صيغة الشعار غير مدعومة. اختر صورة PNG أو JPG أو GIF أو BMP أو WEBP.";
+            return;
+        }
+        if (file.Size > maxImageSize)
+        {
+            editorError = "حجم الشعار أكبر من 5 ميجابايت.";
+            return;
+        }
+
+        try
+        {
+            await using var input = file.OpenReadStream(maxImageSize);
+            using var buffer = new MemoryStream();
+            await input.CopyToAsync(buffer);
+            editorValues[column] = $"data:{file.ContentType};base64,{Convert.ToBase64String(buffer.ToArray())}";
+            editorError = null;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex); editorError = "تعذر قراءة ملف الشعار؛ حاول مرة أخرى أو راجع مسؤول النظام.";
+        }
+    }
+    private static bool IsTrue(MasterDataRowVm row, string column) => row.Values.TryGetValue(column, out var value) && string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+    private string GetSortIcon(string column) => sortColumn == column ? (sortAscending ? "bi bi-arrow-up" : "bi bi-arrow-down") : "bi bi-arrow-down-up";
+
+    private sealed record CardDetailDefinition(string Column, string Label, string Icon, bool Numeric = false, bool Wide = false);
+}
+
+
+
+

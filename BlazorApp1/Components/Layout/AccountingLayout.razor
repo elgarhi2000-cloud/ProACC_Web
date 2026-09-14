@@ -1,0 +1,595 @@
+@inherits LayoutComponentBase
+@using BlazorApp1.Services
+@inject ISessionService SessionService
+@inject IUserAccessService Access
+@inject IProAccDbContextAccessor DbContextAccessor
+@inject NavigationManager NavigationManager
+
+<div class="accounting-layout" dir="rtl">
+    <!-- القائمة الجانبية -->
+    <div class="sidebar @(sidebarCollapsed ? "collapsed" : "") @(mobileMenuOpen ? "mobile-open" : "")">
+        <div class="sidebar-header">
+            <div class="logo-section">
+                @if (!sidebarCollapsed)
+                {
+                    <img src="/images/proacc-logo.png" class="logo-icon-image" alt="شعار نظام ProACC المحاسبي" />
+                    <div class="logo-text-wrap">
+                        <h4>ProACC</h4>
+                        <span class="logo-subtitle">النظام المحاسبي</span>
+                    </div>
+                }
+                else
+                {
+                    <img src="/images/proacc-logo.png" class="logo-icon-image logo-icon-image-small" alt="شعار نظام ProACC المحاسبي" />
+                }
+            </div>
+            <button class="mobile-close-button" type="button" @onclick="ToggleMobileMenu" aria-label="إغلاق القائمة">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+
+        <div class="user-profile @(sidebarCollapsed ? "collapsed" : "")">
+            <div class="profile-avatar">
+                <i class="bi bi-person-circle"></i>
+            </div>
+            @if (!sidebarCollapsed)
+            {
+                <div class="profile-info">
+                    <span class="profile-name">@SessionService.CurrentUsername</span>
+                    <span class="profile-role">@GetSessionContextText()</span>
+                </div>
+            }
+        </div>
+
+        <nav class="sidebar-nav">
+            @if (Access.Has("Main"))
+            {
+                <div class="nav-section @(sidebarCollapsed ? "d-none" : "")">نظرة عامة</div>
+            }
+            @if (SectionAccess.CanRoute("/dashboard", Access.Has))
+            {
+<NavLink class="nav-item" href="/dashboard" Match="NavLinkMatch.All" @onclick="CloseMobileMenu">
+                <div class="nav-icon">
+                    <i class="bi bi-speedometer2"></i>
+                </div>
+                <span class="nav-text @(sidebarCollapsed ? "d-none" : "")">الرئيسية</span>
+            </NavLink>
+            }
+
+            @if (new[] { "GL", "RC", "PM", "INV", "Cards" }.Any(Access.Has))
+            {
+                <div class="nav-section @(sidebarCollapsed ? "d-none" : "")">المحاسبة</div>
+            }
+            @if (SectionAccess.CanRoute("/accounting/journal-entries", Access.Has))
+            {
+<NavLink class="nav-item" href="/accounting/journal-entries" @onclick="CloseMobileMenu">
+                <div class="nav-icon">
+                    <i class="bi bi-journal-text"></i>
+                </div>
+                <span class="nav-text @(sidebarCollapsed ? "d-none" : "")">قيود اليومية</span>
+            </NavLink>
+            }
+
+            @if (SectionAccess.CanRoute("/accounting/opening-balances", Access.Has))
+            {
+<NavLink class="nav-item" href="/accounting/opening-balances" @onclick="CloseMobileMenu">
+                <div class="nav-icon"><i class="bi bi-journal-arrow-up"></i></div>
+                <span class="nav-text @(sidebarCollapsed ? "d-none" : "")">قيود إفتتاحية</span>
+            </NavLink>
+            }
+
+            @if (SectionAccess.CanRoute("/accounting/receipts", Access.Has))
+            {
+<NavLink class="nav-item" href="/accounting/receipts" @onclick="CloseMobileMenu">
+                <div class="nav-icon">
+                    <i class="bi bi-receipt-cutoff"></i>
+                </div>
+                <span class="nav-text @(sidebarCollapsed ? "d-none" : "")">سندات القبض</span>
+            </NavLink>
+            }
+
+            @if (SectionAccess.CanRoute("/accounting/payments", Access.Has))
+            {
+<NavLink class="nav-item" href="/accounting/payments" @onclick="CloseMobileMenu">
+                <div class="nav-icon">
+                    <i class="bi bi-wallet2"></i>
+                </div>
+                <span class="nav-text @(sidebarCollapsed ? "d-none" : "")">سندات الصرف</span>
+            </NavLink>
+            }
+
+            @if (SectionAccess.CanRoute("/accounting/invoices", Access.Has))
+            {
+<NavLink class="nav-item" href="/accounting/invoices" @onclick="CloseMobileMenu">
+                <div class="nav-icon">
+                    <i class="bi bi-file-earmark-text"></i>
+                </div>
+                <span class="nav-text @(sidebarCollapsed ? "d-none" : "")">فواتير المبيعات</span>
+            </NavLink>
+            }
+
+            @if (SectionAccess.CanRoute("/accounting/purchase-invoices", Access.Has))
+            {
+<NavLink class="nav-item" href="/accounting/purchase-invoices" @onclick="CloseMobileMenu">
+                <div class="nav-icon">
+                    <i class="bi bi-file-earmark-arrow-down"></i>
+                </div>
+                <span class="nav-text @(sidebarCollapsed ? "d-none" : "")">فواتير المشتريات</span>
+            </NavLink>
+            }
+
+            @if (SectionAccess.CanRoute("/accounting/cards", Access.Has))
+            {
+<NavLink class="nav-item" href="/accounting/cards" @onclick="CloseMobileMenu">
+                <div class="nav-icon">
+                    <i class="bi bi-person-vcard"></i>
+                </div>
+                <span class="nav-text @(sidebarCollapsed ? "d-none" : "")">جهات التعامل</span>
+            </NavLink>
+            }
+
+            @if (new[] { "EmpCard", "Payroll", "Holidays" }.Any(Access.Has) || SectionAccess.CanRoute("/accounting/reports/employees", Access.Has))
+            {
+                <div class="nav-section @(sidebarCollapsed ? "d-none" : "")">الموارد البشرية</div>
+            }
+            @if (Access.Has("EmpCard") || Access.Has("Payroll") || Access.Has("Holidays") || SectionAccess.CanRoute("/accounting/reports/employees", Access.Has))
+            {
+            <div class="nav-group @(IsHrSectionActive() ? "active" : "")">
+                <button type="button" aria-expanded="@hrMenuExpanded" class="nav-item nav-group-parent" @onclick="ToggleHrMenu">
+                    <div class="nav-icon">
+                        <i class="bi bi-people-fill"></i>
+                    </div>
+                    <span class="nav-text @(sidebarCollapsed ? "d-none" : "")">الموارد البشرية</span>
+                    @if (!sidebarCollapsed)
+                    {
+                        <i class="bi @(hrMenuExpanded ? "bi-chevron-down" : "bi-chevron-left") nav-group-arrow"></i>
+                    }
+                </button>
+
+                @if (!sidebarCollapsed && hrMenuExpanded)
+                {
+                    <div class="nav-submenu">
+                        @if (SectionAccess.CanRoute("/accounting/hr/employees", Access.Has))
+            {
+<NavLink class="nav-sub-item" href="/accounting/hr/employees" @onclick="CloseMobileMenu">
+                            <i class="bi bi-person-badge"></i>
+                            <span>تعريف الموظفين</span>
+                        </NavLink>
+            }
+                        @if (SectionAccess.CanRoute("/accounting/hr/payroll", Access.Has))
+            {
+<NavLink class="nav-sub-item" href="/accounting/hr/payroll" @onclick="CloseMobileMenu">
+                            <i class="bi bi-cash-stack"></i>
+                            <span>الرواتب</span>
+                        </NavLink>
+            }
+                        @if (SectionAccess.CanRoute("/accounting/hr/holidays", Access.Has))
+            {
+<NavLink class="nav-sub-item" href="/accounting/hr/holidays" @onclick="CloseMobileMenu">
+                            <i class="bi bi-calendar2-check"></i>
+                            <span>الإجازات</span>
+                        </NavLink>
+            }
+                        @if (SectionAccess.CanRoute("/accounting/reports/employees", Access.Has))
+                        {
+                            <NavLink class="nav-sub-item" href="/accounting/reports/employees" @onclick="CloseMobileMenu">
+                                <i class="bi bi-person-lines-fill"></i><span>تقارير الموظفين</span>
+                            </NavLink>
+                        }
+                    </div>
+                }
+            </div>
+
+            }
+            @if (new[] { "Reports", "Data", "Setting", "Users", "Designer" }.Any(Access.Has))
+            {
+                <div class="nav-section @(sidebarCollapsed ? "d-none" : "")">التقارير والإعدادات</div>
+            }
+            @if (Access.Has("Reports"))
+            {
+            <div class="nav-group @(IsReportsSectionActive() ? "active" : "")">
+                <button type="button" aria-expanded="@reportsMenuExpanded" class="nav-item nav-group-parent" @onclick="ToggleReportsMenu">
+                    <div class="nav-icon">
+                        <i class="bi bi-bar-chart-line"></i>
+                    </div>
+                    <span class="nav-text @(sidebarCollapsed ? "d-none" : "")">التقارير المالية</span>
+                    @if (!sidebarCollapsed)
+                    {
+                        <i class="bi @(reportsMenuExpanded ? "bi-chevron-down" : "bi-chevron-left") nav-group-arrow"></i>
+                    }
+                </button>
+
+                @if (!sidebarCollapsed && reportsMenuExpanded)
+                {
+                    <div class="nav-submenu">
+                        @if (SectionAccess.CanRoute("/accounting/reports/general-journal", Access.Has))
+            {
+<NavLink class="nav-sub-item" href="/accounting/reports/general-journal" @onclick="CloseMobileMenu">
+                            <i class="bi bi-journal-text"></i>
+                            <span>اليومية العامة</span>
+                        </NavLink>
+            }
+                        @if (SectionAccess.CanRoute("/accounting/reports/trial-balance", Access.Has))
+            {
+<NavLink class="nav-sub-item" href="/accounting/reports/trial-balance" @onclick="CloseMobileMenu">
+                            <i class="bi bi-table"></i>
+                            <span>ميزان المراجعة</span>
+                        </NavLink>
+            }
+                        @if (SectionAccess.CanRoute("/accounting/reports/account-statement", Access.Has))
+            {
+<NavLink class="nav-sub-item" href="/accounting/reports/account-statement" @onclick="CloseMobileMenu">
+                            <i class="bi bi-file-earmark-spreadsheet"></i>
+                            <span>كشف حساب</span>
+                        </NavLink>
+            }
+                        @if (SectionAccess.CanRoute("/accounting/reports/financial-position", Access.Has))
+            {
+<NavLink class="nav-sub-item" href="/accounting/reports/financial-position" @onclick="CloseMobileMenu">
+                            <i class="bi bi-bank"></i>
+                            <span>المركز المالي</span>
+                        </NavLink>
+            }
+                        @if (SectionAccess.CanRoute("/accounting/reports/income-statement", Access.Has))
+            {
+<NavLink class="nav-sub-item" href="/accounting/reports/income-statement" @onclick="CloseMobileMenu">
+                            <i class="bi bi-graph-up-arrow"></i>
+                            <span>قائمة الدخل</span>
+                        </NavLink>
+            }
+                        @if (SectionAccess.CanRoute("/accounting/reports/cost-centers", Access.Has))
+            {
+<NavLink class="nav-sub-item" href="/accounting/reports/cost-centers" @onclick="CloseMobileMenu">
+                            <i class="bi bi-diagram-3"></i>
+                            <span>مراكز التكلفة</span>
+                        </NavLink>
+            }
+                    </div>
+                }
+            </div>
+
+            }
+            @if (SectionAccess.CanRoute("/accounting/chart-of-accounts", Access.Has))
+            {
+<NavLink class="nav-item" href="/accounting/chart-of-accounts" @onclick="CloseMobileMenu">
+                <div class="nav-icon">
+                    <i class="bi bi-diagram-3"></i>
+                </div>
+                <span class="nav-text @(sidebarCollapsed ? "d-none" : "")">دليل الحسابات</span>
+            </NavLink>
+            }
+
+            @if (SectionAccess.CanRoute("/accounting/settings", Access.Has))
+            {
+<NavLink class="nav-item" href="/accounting/settings" @onclick="CloseMobileMenu">
+                <div class="nav-icon">
+                    <i class="bi bi-gear-fill"></i>
+                </div>
+                <span class="nav-text @(sidebarCollapsed ? "d-none" : "")">الإعدادات</span>
+            </NavLink>
+            }
+
+            @if (Access.Has("Designer"))
+            {
+                <NavLink class="nav-item" href="/accounting/report-designer" @onclick="CloseMobileMenu" title="مصمم التقارير">
+                    <div class="nav-icon"><i class="bi bi-palette"></i></div>
+                    <span class="nav-text @(sidebarCollapsed ? "d-none" : "")">مصمم التقارير</span>
+                </NavLink>
+            }
+
+            <button class="nav-item" type="button" @onclick="OpenAboutModal" title="حول النظام" aria-label="عرض معلومات حول النظام">
+                <div class="nav-icon"><i class="bi bi-info-circle-fill"></i></div>
+                <span class="nav-text @(sidebarCollapsed ? "d-none" : "")">حول النظام</span>
+            </button>
+
+            <button type="button" aria-label="طي أو توسيع القائمة الجانبية" class="nav-item toggle-sidebar-item" @onclick="ToggleSidebar">
+                <div class="nav-icon">
+                    <i class="bi @(sidebarCollapsed ? "bi-layout-sidebar-inset" : "bi-layout-sidebar")"></i>
+                </div>
+                <span class="nav-text @(sidebarCollapsed ? "d-none" : "")">@(sidebarCollapsed ? "توسيع القائمة" : "طي القائمة")</span>
+            </button>
+
+        </nav>
+    </div>
+
+    <!-- المحتوى الرئيسي -->
+    <div class="main-content">
+        <div class="top-bar">
+            <div class="page-heading">
+                <button class="mobile-menu-button" type="button" @onclick="ToggleMobileMenu" aria-label="فتح القائمة">
+                    <i class="bi bi-list"></i>
+                </button>
+                <div class="breadcrumb">
+                    <i class="bi bi-house-door-fill breadcrumb-icon"></i>
+                    <span>@GetCurrentPageTitle()</span>
+                </div>
+            </div>
+            <div class="top-bar-actions">
+                <button class="topbar-logout topbar-action-card" type="button" @onclick="HandleLogout" title="تسجيل الخروج" aria-label="تسجيل الخروج">
+                    <i class="bi bi-box-arrow-left"></i>
+                </button>
+                <div class="period-display topbar-action-card" title="الفترة المالية الحالية">
+                    <i class="bi bi-calendar2-range"></i>
+                    <span class="period-display-text">
+                        <span>الفترة المالية الحالية</span>
+                        <strong>@GetCurrentPeriodDisplay()</strong>
+                    </span>
+                </div>
+                <div class="company-display topbar-action-card" title="@SessionService.SelectedCompanyName">
+                    <i class="bi bi-buildings"></i>
+                    <strong>@(string.IsNullOrWhiteSpace(SessionService.SelectedCompanyName) ? "المنشأة" : SessionService.SelectedCompanyName)</strong>
+                </div>
+                <div class="topbar-user topbar-action-card">
+                    <div class="topbar-user-avatar">
+                        <i class="bi bi-person-circle"></i>
+                    </div>
+                    <div class="topbar-user-info">
+                        <span class="topbar-user-name">@SessionService.CurrentUsername</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="content-area">
+            @Body
+        </div>
+    </div>
+</div>
+
+@if (aboutModalOpen)
+{
+    <div class="about-modal-backdrop" role="presentation" @onclick="CloseAboutModal">
+        <section class="about-modal" role="dialog" aria-modal="true" aria-labelledby="about-system-title" @onclick:stopPropagation="true">
+            <header class="about-modal-header">
+                <div class="about-brand">
+                    <div class="about-brand-icon" aria-hidden="true">
+                        <i class="bi bi-bar-chart-line-fill"></i>
+                    </div>
+                    <div>
+                        <div class="about-eyebrow">نظام محاسبي متكامل</div>
+                        <h2 id="about-system-title">حول ProACC</h2>
+                        <p>إدارة مالية أوضح، وعمليات يومية أكثر كفاءة.</p>
+                    </div>
+                </div>
+                <div class="about-header-actions">
+                    <span class="version-badge"><i class="bi bi-stars"></i> ProACC v1.1</span>
+                    <button class="about-close" type="button" @onclick="CloseAboutModal" aria-label="إغلاق نافذة حول النظام">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+            </header>
+
+            <div class="about-modal-body">
+                <section class="about-intro">
+                    <div class="section-title-icon"><i class="bi bi-grid-1x2-fill"></i></div>
+                    <div>
+                        <span class="about-section-kicker">نظرة عامة</span>
+                        <h3>كل أدوات العمل المحاسبي في مكان واحد</h3>
+                        <p>
+                            ProACC نظام محاسبي صُمم لتنظيم الدورة المالية من إدخال المستند وحتى ظهور أثره في التقارير.
+                            يربط القيود والحركات المالية بجهات التعامل والموارد البشرية، ويمنح الإدارة صورة سريعة ودقيقة
+                            عن الأداء والمركز المالي.
+                        </p>
+                    </div>
+                </section>
+
+                <div class="system-modules">
+                    <article class="module-card module-indigo">
+                        <i class="bi bi-journal-check"></i>
+                        <div><h4>الحسابات العامة</h4><p>إنشاء قيود اليومية ومراجعتها وربطها بمصادر الحركات المالية.</p></div>
+                    </article>
+                    <article class="module-card module-emerald">
+                        <i class="bi bi-arrow-left-right"></i>
+                        <div><h4>القبض والصرف</h4><p>تسجيل سندات القبض والصرف ومتابعة التدفقات النقدية.</p></div>
+                    </article>
+                    <article class="module-card module-blue">
+                        <i class="bi bi-receipt"></i>
+                        <div><h4>المبيعات والمشتريات</h4><p>إدارة الفواتير وتوثيق العمليات التجارية وأثرها المحاسبي.</p></div>
+                    </article>
+                    <article class="module-card module-amber">
+                        <i class="bi bi-people-fill"></i>
+                        <div><h4>جهات التعامل</h4><p>تنظيم بيانات العملاء والموردين وربطها بالحركات وكشوف الحساب.</p></div>
+                    </article>
+                    <article class="module-card module-rose">
+                        <i class="bi bi-person-workspace"></i>
+                        <div><h4>الموارد البشرية</h4><p>إدارة الموظفين والرواتب والإجازات ضمن بيئة العمل نفسها.</p></div>
+                    </article>
+                    <article class="module-card module-violet">
+                        <i class="bi bi-graph-up-arrow"></i>
+                        <div><h4>التقارير المالية</h4><p>اليومية العامة وميزان المراجعة وكشوف الحساب والقوائم المالية.</p></div>
+                    </article>
+                    <article class="module-card module-cyan">
+                        <i class="bi bi-diagram-3-fill"></i>
+                        <div><h4>دليل الحسابات</h4><p>بناء هيكل حسابي مرن ومنظم يدعم دقة التصنيف والترحيل.</p></div>
+                    </article>
+                    <article class="module-card module-slate">
+                        <i class="bi bi-sliders"></i>
+                        <div><h4>الإعدادات</h4><p>تهيئة بيانات المنشأة والفترات المالية بما يلائم بيئة العمل.</p></div>
+                    </article>
+                </div>
+
+                <div class="about-details-grid">
+                    <section class="about-panel technology-panel">
+                        <div class="panel-heading">
+                            <span class="panel-icon"><i class="bi bi-code-slash"></i></span>
+                            <div><span>التقنية</span><h3>بيئة تطوير حديثة وموثوقة</h3></div>
+                        </div>
+                        <p>طُوّر النظام بلغة <strong>C#</strong> باستخدام <strong>Blazor وASP.NET Core على .NET 10</strong>، مع Entity Framework Core وقاعدة بيانات SQL Server لإدارة البيانات.</p>
+                        <div class="tech-tags">
+                            <span><i class="bi bi-braces"></i> C#</span>
+                            <span><i class="bi bi-window"></i> Blazor</span>
+                            <span><i class="bi bi-microsoft"></i> .NET 10</span>
+                            <span><i class="bi bi-database-fill"></i> SQL Server</span>
+                        </div>
+                    </section>
+
+                    <section class="about-panel contact-panel">
+                        <div class="panel-heading">
+                            <span class="panel-icon"><i class="bi bi-headset"></i></span>
+                            <div><span>تواصل معنا</span><h3>يسعدنا دعمك</h3></div>
+                        </div>
+                        <div class="contact-list">
+                            <div class="contact-item">
+                                <i class="bi bi-person-badge-fill"></i>
+                                <div><span>مطور النظام</span><strong>أحمد السيد الجارحي</strong></div>
+                            </div>
+                            <a class="contact-item" href="tel:+966545540398">
+                                <i class="bi bi-telephone-fill"></i>
+                                <div><span>الجوال</span><strong dir="ltr">00966 54 554 0398</strong></div>
+                            </a>
+                            <a class="contact-item" href="mailto:elgarhi2000@gmail.com">
+                                <i class="bi bi-envelope-fill"></i>
+                                <div><span>البريد الإلكتروني</span><strong dir="ltr">elgarhi2000@gmail.com</strong></div>
+                            </a>
+                        </div>
+                        <div class="social-section">
+                            <span>تابعنا على</span>
+                            <div class="social-links" aria-label="منصات التواصل الاجتماعي">
+                                <span class="social-link facebook" title="فيسبوك"><i class="bi bi-facebook"></i><span>فيسبوك</span></span>
+                                <span class="social-link instagram" title="إنستغرام"><i class="bi bi-instagram"></i><span>إنستغرام</span></span>
+                                <span class="social-link twitter" title="تويتر"><i class="bi bi-twitter-x"></i><span>تويتر</span></span>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+
+            <footer class="about-modal-footer">
+                <span><i class="bi bi-shield-check"></i> ProACC — الدقة والوضوح في إدارة أعمالك</span>
+                <button type="button" @onclick="CloseAboutModal">إغلاق</button>
+            </footer>
+        </section>
+    </div>
+}
+
+@code {
+    private bool sidebarCollapsed = false;
+    // Authorization checks can recreate the layout when navigating; keep user choices in the session.
+    private bool reportsMenuExpanded
+    {
+        get => SessionService.SidebarMenus.ReportsExpanded;
+        set => SessionService.SidebarMenus.ReportsExpanded = value;
+    }
+    private bool hrMenuExpanded
+    {
+        get => SessionService.SidebarMenus.HrExpanded;
+        set => SessionService.SidebarMenus.HrExpanded = value;
+    }
+    private bool mobileMenuOpen;
+    private bool aboutModalOpen;
+
+    private void OpenAboutModal()
+    {
+        CloseMobileMenu();
+        aboutModalOpen = true;
+    }
+
+    private void CloseAboutModal() => aboutModalOpen = false;
+
+    private void ToggleSidebar()
+    {
+        sidebarCollapsed = !sidebarCollapsed;
+    }
+
+    private void ToggleMobileMenu()
+    {
+        mobileMenuOpen = !mobileMenuOpen;
+    }
+
+    private void CloseMobileMenu()
+    {
+        mobileMenuOpen = false;
+    }
+
+    private void ToggleReportsMenu()
+    {
+        if (sidebarCollapsed)
+        {
+            return;
+        }
+
+        reportsMenuExpanded = !reportsMenuExpanded;
+    }
+
+    private void ToggleHrMenu()
+    {
+        if (sidebarCollapsed)
+        {
+            return;
+        }
+
+        hrMenuExpanded = !hrMenuExpanded;
+    }
+
+    private async Task HandleLogout()
+    {
+        await SessionService.LogoutAsync();
+        DbContextAccessor.Reset();
+        NavigationManager.NavigateTo("/login");
+    }
+
+    private string GetCurrentPageTitle()
+    {
+        var path = NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
+        return path switch
+        {
+            "" or "dashboard" => "الرئيسية",
+            "accounting/journal-entries" => "قيود اليومية",
+            "accounting/receipts" => "سندات القبض",
+            "accounting/payments" => "سندات الصرف",
+            "accounting/invoices" => "فواتير المبيعات",
+            "accounting/purchase-invoices" => "فواتير المشتريات",
+            "accounting/cards" => "جهات التعامل",
+            "accounting/hr/employees" => "تعريف الموظفين",
+            "accounting/hr/payroll" => "الرواتب",
+            "accounting/hr/holidays" => "الإجازات",
+            "accounting/reports" => "التقارير المالية",
+            "accounting/reports/employees" => "تقارير الموظفين",
+            "accounting/reports/general-journal" => "اليومية العامة",
+            "accounting/reports/trial-balance" => "ميزان المراجعة",
+            "accounting/reports/account-statement" => "كشف حساب",
+            "accounting/reports/financial-position" => "المركز المالي",
+            "accounting/reports/income-statement" => "قائمة الدخل",
+            "accounting/reports/cost-centers" => "مراكز التكلفة",
+            "accounting/opening-balances" => "الأرصدة الافتتاحية",
+            "accounting/settings" => "الإعدادات",
+            "accounting/report-designer" or "accounting/settings/report-designer" => "مصمم التقارير",
+            "accounting/chart-of-accounts" => "دليل الحسابات",
+            _ => "النظام المحاسبي"
+        };
+    }
+
+    private bool IsReportsSectionActive()
+    {
+        var path = NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
+        return path.StartsWith("accounting/reports", StringComparison.OrdinalIgnoreCase)
+            && !IsHrSectionActive();
+    }
+
+    private bool IsHrSectionActive()
+    {
+        var path = NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
+        return path.StartsWith("accounting/hr", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWith("accounting/reports/employees", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private string GetSessionContextText()
+    {
+        var company = string.IsNullOrWhiteSpace(SessionService.SelectedCompanyName)
+            ? "النظام المحاسبي"
+            : SessionService.SelectedCompanyName;
+
+        var period = string.IsNullOrWhiteSpace(SessionService.SelectedPeriodName)
+            ? "بدون فترة محددة"
+            : SessionService.SelectedPeriodName;
+
+        return $"{company} • {period}";
+    }
+
+    private string GetCurrentPeriodDisplay()
+        => !string.IsNullOrWhiteSpace(SessionService.SelectedPeriodName)
+            ? SessionService.SelectedPeriodName
+            : SessionService.SelectedPeriodId?.ToString() ?? "بدون فترة";
+
+}
+

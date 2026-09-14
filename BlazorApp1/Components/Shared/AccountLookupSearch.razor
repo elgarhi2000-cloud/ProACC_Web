@@ -1,0 +1,101 @@
+@using BlazorApp1.Services
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="account-search" @onkeydown="OnKeyDown">
+    <button id="@InputId" @ref="trigger" type="button" class="form-control account-search-trigger"
+            aria-haspopup="dialog" aria-expanded="@isOpen" aria-controls="@(InputId + "-dialog")" disabled="@Disabled" @onclick="Toggle">
+        <span>@SelectedLabel</span><i class="bi bi-search" aria-hidden="true"></i>
+    </button>
+    @if (isOpen)
+    {
+        <dialog id="@(InputId + "-dialog")" @ref="dialog" class="account-search-panel" aria-labelledby="@(InputId + "-title")" dir="rtl" @oncancel="Close" @oncancel:preventDefault>
+            <div class="account-search-heading">
+                <h5 id="@(InputId + "-title")">اختيار @Label</h5>
+                <button type="button" class="btn btn-sm btn-light" aria-label="إغلاق نافذة اختيار الحساب" @onclick="Close">×</button>
+            </div>
+            <label for="@(InputId + "-search")" class="form-label">البحث عن الحساب بالرقم أو الاسم</label>
+            <input id="@(InputId + "-search")" @ref="searchInput" type="search" class="form-control" placeholder="اكتب رقم الحساب أو اسمه…"
+                   @bind="search" @bind:event="oninput" disabled="@Disabled" />
+            <div id="@(InputId + "-results")" class="account-search-results" role="group" aria-label="@Label">
+                @foreach (var option in Matches)
+                {
+                    <button @key="option.Value" type="button" class="account-search-option @(Value == option.Value ? "selected" : "")"
+                            aria-pressed="@(Value == option.Value)" disabled="@Disabled" @onclick="() => Choose(option.Value)">
+                        <span>@option.Label</span><small>@option.Value</small>
+                    </button>
+                }
+                @if (!Matches.Any())
+                {
+                    <p class="text-muted p-3 mb-0" role="status">لا توجد حسابات مطابقة للبحث.</p>
+                }
+            </div>
+            <div class="account-search-actions">
+                <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@Disabled" @onclick="() => Choose(null)">إزالة الربط</button>
+                <button type="button" class="btn btn-sm btn-light" @onclick="Close">إغلاق</button>
+            </div>
+        </dialog>
+    }
+</div>
+
+@code {
+    [Parameter] public string InputId { get; set; } = "";
+    [Parameter] public string Label { get; set; } = "";
+    [Parameter] public IReadOnlyList<MasterLookupOptionVm> Options { get; set; } = Array.Empty<MasterLookupOptionVm>();
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    private bool isOpen;
+    private bool focusSearch;
+    private string search = "";
+    private ElementReference trigger;
+    private ElementReference searchInput;
+    private ElementReference dialog;
+    private IJSObjectReference? module;
+    private string SelectedLabel => string.IsNullOrEmpty(Value) ? "ابحث واختر الحساب المطلوب ربطه" :
+        Options.FirstOrDefault(x => x.Value == Value) is { } selected ? $"{selected.Label} — {selected.Value}" : $"الحساب {Value}";
+    private IEnumerable<MasterLookupOptionVm> Matches => Options.Where(x => string.IsNullOrWhiteSpace(search) ||
+        x.Label.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase) || x.Value.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase));
+    private async Task Toggle()
+    {
+        if (Disabled) return;
+        if (isOpen) { await Close(); return; }
+        search = "";
+        isOpen = true;
+        focusSearch = true;
+    }
+    private async Task Close()
+    {
+        if (module is not null && isOpen) await module.InvokeVoidAsync("close", dialog);
+        isOpen = false;
+        await trigger.FocusAsync();
+    }
+    private async Task Choose(string? value)
+    {
+        if (Disabled) return;
+        await ValueChanged.InvokeAsync(value);
+        await Close();
+    }
+    private async Task OnKeyDown(KeyboardEventArgs args)
+    {
+        if (isOpen && args.Key == "Escape") await Close();
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (focusSearch && isOpen)
+        {
+            focusSearch = false;
+            module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/accountLookupSearch.js");
+            await module.InvokeVoidAsync("open", dialog);
+            await searchInput.FocusAsync();
+        }
+    }
+    public async ValueTask DisposeAsync()
+    {
+        if (module is not null)
+        {
+            try { await module.DisposeAsync(); }
+            catch (JSDisconnectedException) { }
+        }
+    }
+}

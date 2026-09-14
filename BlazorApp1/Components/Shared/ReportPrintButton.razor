@@ -1,0 +1,52 @@
+@using BlazorApp1.Services
+@inject IAccountingDataService Accounting
+@inject ISessionService Session
+@inject ReportDesignService Designs
+@inject IUserAccessService Access
+@inject IJSRuntime JS
+
+@using Microsoft.AspNetCore.Components.Sections
+@if (ToolbarSection is not null)
+{
+    <SectionContent SectionId="@ToolbarSection">@Buttons</SectionContent>
+}
+else
+{
+    @Buttons
+}
+
+@code {
+    [Parameter] public object? ToolbarSection { get; set; }
+    private RenderFragment Buttons => @<text><div class="d-inline-flex align-items-center gap-2 flex-wrap">
+    <button type="button" class="btn btn-outline-secondary btn-sm" disabled="@(Disabled || busy)" @onclick="() => Print(false)"><i class="bi bi-printer"></i> طباعة</button>
+    <button type="button" class="btn btn-outline-danger btn-sm" disabled="@(Disabled || busy)" @onclick="() => Print(true)"><i class="bi bi-file-earmark-pdf"></i> تصدير PDF</button>
+    @if (message is not null) { <small role="status">@message</small> }
+</div></text>;
+
+    [Parameter, EditorRequired] public Func<PrintReport> BuildReport { get; set; } = default!;
+    [Parameter] public string Kind { get; set; } = "reports";
+    [Parameter] public bool Disabled { get; set; }
+    private bool busy;
+    private string? message;
+    private async Task Print(bool pdf)
+    {
+        if (busy || Disabled) return;
+        busy = true;
+        message = null;
+        try
+        {
+            var companyKey = Session.SelectedDatabaseKey;
+            await Access.RequireAsync(ReportDesignService.PrintPermission(Kind));
+            var report = BuildReport();
+            var company = await Accounting.GetSettingsDataAsync();
+            var design = await Designs.ForPrintAsync(Kind);
+            if (companyKey != Session.SelectedDatabaseKey) throw new InvalidOperationException();
+            await JS.InvokeVoidAsync("reportExport.print", report, new { company.CompanyName, company.CompanyLogo,
+                company.CompanyAddress, company.CompanyPhone, company.CommercialRecord, company.TaxNumber,
+                PeriodName = company.ActivePeriodName, PrintedBy = Session.CurrentUsername, Design = design });
+        }
+        catch (UnauthorizedAccessException) { message = "ليس لديك صلاحية طباعة هذا التقرير."; }
+        catch { message = "تعذر تجهيز المطبوعة. حاول مرة أخرى."; }
+        finally { busy = false; }
+    }
+}

@@ -1,0 +1,485 @@
+@page "/accounting/journal-entries"
+@layout BlazorApp1.Components.Layout.AccountingLayout
+@using BlazorApp1.Services
+@inject IAccountingDataService AccountingDataService
+@inject NavigationManager Navigation
+
+<PageTitle>@ListTitle - النظام المحاسبي</PageTitle>
+
+<div class="page-content" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3 class="page-title"><i class="bi bi-journal-text me-2"></i>@ListTitle</h3>
+        <button class="btn btn-primary" @onclick="CreateNewEntry">
+            <i class="bi bi-plus-circle me-2"></i>@(IsOpeningList ? "إضافة قيد افتتاحي جديد" : "إضافة قيد جديد")
+        </button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-danger" role="alert">@errorMessage</div>
+    }
+    else if (isLoading)
+    {
+        <div class="alert alert-info">جاري تحميل القيود...</div>
+    }
+    else
+    {
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h5 class="mb-0">القيود المحاسبية</h5>
+
+                <div class="records-toolbar d-flex align-items-center gap-2">
+                    <label class="records-label mb-0" for="recordsCount">عدد السجلات:</label>
+                    <select id="recordsCount" class="form-select form-select-sm records-select"
+                            @bind="selectedTake">
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                        <option value="200">200</option>
+                        <option value="0">جميع السجلات</option>
+                    </select>
+                    <button class="btn btn-sm records-refresh-btn" @onclick="ReloadEntriesAsync">
+                        <i class="bi bi-arrow-repeat"></i>
+                        <span>تحديث العرض</span>
+                    </button>
+                    <span class="badge records-count-badge">@entries.Count قيد</span>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="section-search-bar">
+                    <input aria-label="ابحث في رقم القيد، المصدر، الحساب أو الوصف" type="search" class="form-control section-search-input" value="@searchText" @oninput="OnSearchInput" placeholder="ابحث في رقم القيد، المصدر، الحساب أو الوصف" />
+                    <button class="btn section-search-btn" @onclick="ApplySearch">
+                        <i class="bi bi-search me-1"></i>بحث
+                    </button>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead>
+                            <tr>
+                                <th scope="col" class="text-center">#</th>
+                                <th aria-sort='@GetAriaSort("GLID")'>
+                                    <button type="button" class="sort-header @(sortColumn == "GLID" ? "active" : null)" @onclick='() => SortBy("GLID")'>
+                                        <span>رقم القيد</span><i class="@GetSortIcon("GLID")" aria-hidden="true"></i>
+                                    </button>
+                                </th>
+                                <th aria-sort='@GetAriaSort("SerialNo")'>
+                                    <button type="button" class="sort-header @(sortColumn == "SerialNo" ? "active" : null)" @onclick='() => SortBy("SerialNo")'>
+                                        <span>تسلسل القيد</span><i class="@GetSortIcon("SerialNo")" aria-hidden="true"></i>
+                                    </button>
+                                </th>
+                                <th aria-sort='@GetAriaSort("Date")'>
+                                    <button type="button" class="sort-header @(sortColumn == "Date" ? "active" : null)" @onclick='() => SortBy("Date")'>
+                                        <span>التاريخ</span><i class="@GetSortIcon("Date")" aria-hidden="true"></i>
+                                    </button>
+                                </th>
+                                <th aria-sort='@GetAriaSort("SourceName")'>
+                                    <button type="button" class="sort-header @(sortColumn == "SourceName" ? "active" : null)" @onclick='() => SortBy("SourceName")'>
+                                        <span>المصدر</span><i class="@GetSortIcon("SourceName")" aria-hidden="true"></i>
+                                    </button>
+                                </th>
+                                <th aria-sort='@GetAriaSort("CardName")'>
+                                    <button type="button" class="sort-header @(sortColumn == "CardName" ? "active" : null)" @onclick='() => SortBy("CardName")'>
+                                        <span>جهة التعامل</span><i class="@GetSortIcon("CardName")" aria-hidden="true"></i>
+                                    </button>
+                                </th>
+                                <th aria-sort='@GetAriaSort("Description")'>
+                                    <button type="button" class="sort-header @(sortColumn == "Description" ? "active" : null)" @onclick='() => SortBy("Description")'>
+                                        <span>الوصف</span><i class="@GetSortIcon("Description")" aria-hidden="true"></i>
+                                    </button>
+                                </th>
+                                <th aria-sort='@GetAriaSort("Debit")'>
+                                    <button type="button" class="sort-header @(sortColumn == "Debit" ? "active" : null)" @onclick='() => SortBy("Debit")'>
+                                        <span>مدين</span><i class="@GetSortIcon("Debit")" aria-hidden="true"></i>
+                                    </button>
+                                </th>
+                                <th aria-sort='@GetAriaSort("Credit")'>
+                                    <button type="button" class="sort-header @(sortColumn == "Credit" ? "active" : null)" @onclick='() => SortBy("Credit")'>
+                                        <span>دائن</span><i class="@GetSortIcon("Credit")" aria-hidden="true"></i>
+                                    </button>
+                                </th>
+                                <th class="actions-heading">
+                                    <span class="actions-heading-label">إجراءات</span>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (var index = 0; index < filteredEntries.Count; index++)
+                            {
+                                var item = filteredEntries[index];
+                                <tr>
+                                    <td class="text-center">@(index + 1)</td>
+                                    <td>#@item.GLID</td>
+                                    <td>@(item.SerialNo?.ToString() ?? "-")</td>
+                                    <td>@(item.Date?.ToString("yyyy/MM/dd") ?? "-")</td>
+                                    <td>@item.SourceName</td>
+                                    <td>@item.CardName</td>
+                                    <td>@item.Description</td>
+                                    <td class="text-success fw-semibold">@FormatCurrency(item.Debit)</td>
+                                    <td class="text-danger fw-semibold">@FormatCurrency(item.Credit)</td>
+                                    <td>
+                                        <div class="entry-actions" role="group" aria-label="إجراءات القيد">
+                                            <button type="button" class="action-btn action-edit" title="تعديل القيد" aria-label="تعديل القيد" @onclick="() => EditEntry(item.GLID)">
+                                                <i class="bi bi-pencil-square" aria-hidden="true"></i>
+                                            </button>
+                                            <JournalEntryPrintButton EntryId="item.GLID" />
+                                            <JournalEntryPdfButton EntryId="item.GLID" />
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .records-toolbar {
+        color: #ffffff;
+        font-weight: 600;
+        flex-wrap: nowrap;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 14px;
+        padding: 8px 10px;
+    }
+
+    .records-label {
+        color: #ffffff;
+        font-size: 1.02rem;
+        white-space: nowrap;
+        font-weight: 700;
+    }
+
+    .records-select {
+        min-width: 150px;
+        height: 44px;
+        border-radius: 12px;
+        border: 1px solid #d6ddff;
+        color: #2d3748;
+        font-weight: 700;
+        font-size: 1.05rem;
+        background: #ffffff;
+        padding-inline: 18px;
+    }
+
+        .records-select:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.2);
+        }
+
+    .records-refresh-btn {
+        height: 44px;
+        background: #ffffff;
+        border: 1px solid #d6ddff;
+        color: #3f51b5;
+        font-weight: 700;
+        border-radius: 12px;
+        padding: 0 1rem;
+        white-space: nowrap;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        box-shadow: 0 4px 10px rgba(32, 61, 162, 0.12);
+    }
+
+        .records-refresh-btn:hover {
+            background: #f2f6ff;
+            color: #2f3fa0;
+            transform: translateY(-1px);
+        }
+
+    .records-count-badge {
+        height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255, 255, 255, 0.24);
+        color: #ffffff;
+        font-size: 1rem;
+        font-weight: 800;
+        border-radius: 999px;
+        padding: 0 1rem;
+        white-space: nowrap;
+        letter-spacing: 0.2px;
+    }
+
+    .sort-header {
+        width: 100%;
+        padding: 0.7rem 0.25rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 7px;
+        color: inherit;
+        background: transparent;
+        border: 0;
+        border-radius: 8px;
+        font: inherit;
+        font-weight: 700;
+        white-space: nowrap;
+        cursor: pointer;
+        transition: color .2s ease, background-color .2s ease;
+    }
+
+        .sort-header i {
+            min-width: 16px;
+            color: #94a3b8;
+            font-size: 0.82rem;
+            transition: color .2s ease, transform .2s ease;
+        }
+
+        .sort-header:hover {
+            color: #4f46e5;
+            background: rgba(79, 70, 229, 0.08);
+        }
+
+            .sort-header:hover i,
+            .sort-header.active i {
+                color: #4f46e5;
+            }
+
+        .sort-header.active {
+            color: #4338ca;
+            background: rgba(79, 70, 229, 0.1);
+        }
+
+        .sort-header:focus-visible {
+            outline: 3px solid rgba(79, 70, 229, 0.2);
+            outline-offset: 2px;
+        }
+
+    .actions-heading {
+        vertical-align: middle;
+    }
+
+    .actions-heading-label {
+        padding: 0.7rem 0.25rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-start;
+        color: inherit;
+        font: inherit;
+        font-weight: 700;
+        line-height: inherit;
+        white-space: nowrap;
+    }
+
+    .entry-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0;
+        white-space: nowrap;
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+    }
+
+    .action-btn {
+        --action-color: #475569;
+        --action-bg: #f1f5f9;
+        width: 38px;
+        min-width: 38px;
+        height: 38px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--action-color);
+        background: transparent;
+        border: 0;
+        border-radius: 10px;
+        font-family: inherit;
+        line-height: 1;
+        cursor: pointer;
+        transition: color .2s ease, background-color .2s ease, box-shadow .2s ease, transform .2s ease;
+    }
+
+        .action-btn i {
+            font-size: 1.05rem;
+            line-height: 1;
+        }
+
+    .action-edit {
+        --action-color: #4f46e5;
+        --action-bg: #eef2ff;
+    }
+
+    .action-print {
+        --action-color: #475569;
+        --action-bg: #f1f5f9;
+    }
+
+    .action-btn:hover {
+        color: var(--action-color);
+        background: var(--action-bg);
+        box-shadow: 0 5px 12px rgba(15, 23, 42, 0.08);
+        transform: translateY(-2px);
+    }
+
+    .action-btn:active {
+        transform: translateY(0) scale(.97);
+        box-shadow: none;
+    }
+
+    .action-btn:focus-visible {
+        outline: 3px solid rgba(79, 70, 229, 0.2);
+        outline-offset: 2px;
+    }
+
+    @@media (max-width: 992px) {
+        .entry-actions {
+            gap: 4px;
+        }
+
+        .action-btn {
+            width: 38px;
+            min-width: 38px;
+            padding: 0;
+        }
+    }
+
+    @@media (prefers-reduced-motion: reduce) {
+        .action-btn {
+            transition: none;
+        }
+    }
+</style>
+
+@code {
+    [Parameter] public bool IsOpeningList { get; set; }
+    private string ListTitle => IsOpeningList ? "الأرصدة الافتتاحية" : "قيود اليومية";
+    private List<JournalEntryVm> entries = new();
+    private List<JournalEntryVm> filteredEntries = new();
+    private bool isLoading = true;
+    private string? errorMessage;
+    private int selectedTake = 100;
+    private string searchText = string.Empty;
+    private string sortColumn = string.Empty;
+    private bool sortAscending = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadEntriesAsync();
+    }
+
+    private async Task ReloadEntriesAsync()
+    {
+        await LoadEntriesAsync();
+    }
+
+    private void ApplySearch()
+    {
+        if (string.IsNullOrWhiteSpace(searchText))
+        {
+            filteredEntries = entries.ToList();
+        }
+        else
+        {
+            var term = searchText.Trim();
+            filteredEntries = entries.Where(x =>
+                    x.GLID.ToString().Contains(term, StringComparison.OrdinalIgnoreCase)
+                    || (!string.IsNullOrWhiteSpace(x.SourceName) && x.SourceName.Contains(term, StringComparison.OrdinalIgnoreCase))
+                    || (!string.IsNullOrWhiteSpace(x.CardName) && x.CardName.Contains(term, StringComparison.OrdinalIgnoreCase))
+                    || (!string.IsNullOrWhiteSpace(x.Description) && x.Description.Contains(term, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+        }
+
+        ApplySort();
+    }
+
+    private void SortBy(string column)
+    {
+        if (sortColumn == column)
+        {
+            sortAscending = !sortAscending;
+        }
+        else
+        {
+            sortColumn = column;
+            sortAscending = true;
+        }
+
+        ApplySort();
+    }
+
+    private void ApplySort()
+    {
+        if (string.IsNullOrEmpty(sortColumn))
+            return;
+
+        filteredEntries = (sortColumn, sortAscending) switch
+        {
+            ("GLID", true) => filteredEntries.OrderBy(x => x.GLID).ToList(),
+            ("GLID", false) => filteredEntries.OrderByDescending(x => x.GLID).ToList(),
+            ("SerialNo", true) => filteredEntries.OrderBy(x => x.SerialNo).ToList(),
+            ("SerialNo", false) => filteredEntries.OrderByDescending(x => x.SerialNo).ToList(),
+            ("Date", true) => filteredEntries.OrderBy(x => x.Date).ToList(),
+            ("Date", false) => filteredEntries.OrderByDescending(x => x.Date).ToList(),
+            ("SourceName", true) => filteredEntries.OrderBy(x => x.SourceName, StringComparer.CurrentCultureIgnoreCase).ToList(),
+            ("SourceName", false) => filteredEntries.OrderByDescending(x => x.SourceName, StringComparer.CurrentCultureIgnoreCase).ToList(),
+            ("CardName", true) => filteredEntries.OrderBy(x => x.CardName, StringComparer.CurrentCultureIgnoreCase).ToList(),
+            ("CardName", false) => filteredEntries.OrderByDescending(x => x.CardName, StringComparer.CurrentCultureIgnoreCase).ToList(),
+            ("Description", true) => filteredEntries.OrderBy(x => x.Description, StringComparer.CurrentCultureIgnoreCase).ToList(),
+            ("Description", false) => filteredEntries.OrderByDescending(x => x.Description, StringComparer.CurrentCultureIgnoreCase).ToList(),
+            ("Debit", true) => filteredEntries.OrderBy(x => x.Debit).ToList(),
+            ("Debit", false) => filteredEntries.OrderByDescending(x => x.Debit).ToList(),
+            ("Credit", true) => filteredEntries.OrderBy(x => x.Credit).ToList(),
+            ("Credit", false) => filteredEntries.OrderByDescending(x => x.Credit).ToList(),
+            _ => filteredEntries
+        };
+    }
+
+    private string GetSortIcon(string column) => sortColumn == column
+        ? sortAscending ? "bi bi-arrow-up" : "bi bi-arrow-down"
+        : "bi bi-arrow-down-up";
+
+    private string GetAriaSort(string column) => sortColumn == column
+        ? sortAscending ? "ascending" : "descending"
+        : "none";
+
+    private void OnSearchInput(ChangeEventArgs e)
+    {
+        searchText = e.Value?.ToString() ?? string.Empty;
+        ApplySearch();
+    }
+
+    private async Task LoadEntriesAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            entries = (IsOpeningList ? await AccountingDataService.GetJournalEntriesBySourceAsync(4, selectedTake) : await AccountingDataService.GetJournalEntriesAsync(selectedTake)).ToList();
+            ApplySearch();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex);
+            errorMessage = "تعذر تحميل قيود اليومية؛ حاول مرة أخرى أو راجع مسؤول النظام.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void CreateNewEntry()
+    {
+        Navigation.NavigateTo(IsOpeningList ? "/accounting/journal-entry/new?sourceId=4&returnUrl=/accounting/opening-balances" : "/accounting/journal-entry/new");
+    }
+
+    private void EditEntry(int glid)
+    {
+        Navigation.NavigateTo($"/accounting/journal-entry/{glid}" + (IsOpeningList ? "?sourceId=4&returnUrl=/accounting/opening-balances" : ""));
+    }
+
+    private string FormatCurrency(decimal value)
+    {
+        return value.ToString("N2");
+    }
+}

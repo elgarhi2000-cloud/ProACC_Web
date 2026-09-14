@@ -1,0 +1,171 @@
+@page "/accounting/reports/employees"
+@layout BlazorApp1.Components.Layout.AccountingLayout
+@using System.Globalization
+@using BlazorApp1.Services
+@inject IMasterDataService DataService
+
+<PageTitle>تقارير الموظفين - النظام المحاسبي</PageTitle>
+<div class="page-content employee-report" dir="rtl">
+    <h3 class="page-title"><i class="bi bi-person-lines-fill me-2"></i>تقارير الموظفين</h3>
+    <ReportPrintButton Kind="employee-reports" BuildReport="BuildPrintReport" Disabled="@(busy || report is null)" />
+    <p class="text-muted mt-2">استعراض سجلات الرواتب والإجازات حسب الموظف والفترة الزمنية.</p>
+    <section class="card mb-3">
+        <div class="card-body">
+            <fieldset disabled="@busy" class="report-filters">
+                <div><label for="report-employee" class="form-label">الموظف</label>
+                    <select id="report-employee" class="form-select" @bind="employeeId">
+                        <option value="">جميع الموظفين</option>
+                        @foreach (var employee in employees) { <option value="@employee.Value">@employee.Label — #@employee.Value</option> }
+                    </select>
+                </div>
+                <div><label for="report-from" class="form-label">من تاريخ</label><input id="report-from" type="date" class="form-control" @bind="from" /></div>
+                <div><label for="report-to" class="form-label">إلى تاريخ</label><input id="report-to" type="date" class="form-control" @bind="to" /></div>
+                <div class="report-filter-actions">
+                    <button type="button" class="btn btn-primary" @onclick="LoadAsync"><i class="bi bi-search"></i>عرض التقرير</button>
+                    <button type="button" class="btn btn-light" @onclick="ResetAsync">إعادة تعيين</button>
+                </div>
+            </fieldset>
+            <small class="text-muted d-block mt-3">تُرشّح الرواتب بتاريخ المسير، والإجازات بتداخل مدتها مع الفترة المختارة. اترك التاريخ فارغًا لعرض جميع الفترات.</small>
+        </div>
+    </section>
+    @if (!string.IsNullOrEmpty(error)) { <div class="alert alert-danger" role="alert">@error</div> }
+    @if (busy) { <div class="alert alert-info" role="status">جاري تحميل التقرير...</div> }
+    @if (report is not null && !busy)
+    {
+        <div class="alert alert-light border" role="status">@appliedDescription</div>
+        <label class="form-label" for="employee-record-search">البحث في السجلات المعروضة</label>
+        <input id="employee-record-search" type="search" class="form-control mb-3" placeholder="ابحث بالاسم أو الرقم أو البيان أو الملاحظات" @bind="search" @bind:event="oninput" />
+        <div class="report-summary mb-3">
+            <span>سجلات الرواتب <strong>@SalaryRows.Count</strong></span>
+            <span>صافي الرواتب <strong>@SalaryRows.Sum(row => Number(row, "Net")).ToString("N2")</strong></span>
+            <span>سجلات الإجازات <strong>@HolidayRows.Count</strong></span>
+        </div>
+        @foreach (var salary in new[] { true, false })
+        {
+            var rows = salary ? SalaryRows : HolidayRows;
+            var columns = salary ? SalaryColumns : HolidayColumns;
+            <section class="card mb-4">
+                <div class="card-header"><h5 class="mb-0"><i class="bi @(salary ? "bi-cash-stack" : "bi-calendar-check") me-2"></i>@(salary ? "سجلات الرواتب" : "سجلات الإجازات") <span class="badge bg-light text-dark">@rows.Count</span></h5></div>
+                <div class="table-responsive report-table" tabindex="0" role="region" aria-label="@(salary ? "جدول سجلات الرواتب" : "جدول سجلات الإجازات")">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead><tr>@foreach (var column in columns) { <th scope="col">@column.Label</th> } @if (salary) { <th scope="col">تفاصيل الراتب</th> }</tr></thead>
+                        <tbody>
+                        @foreach (var row in rows)
+                        {
+                            <tr @key="row">
+                                @foreach (var column in columns)
+                                {
+                                    <td>@Display(row, column)</td>
+                                }
+                                @if (salary)
+                                {
+                                    <td><details><summary>عرض التفاصيل</summary><dl class="report-details">
+                                        @foreach (var field in DataService.GetSection("payroll-trans").Fields.Where(item => item.Column is not "EmpID" and not "PayrollID"))
+                                        { <div><dt>@field.Label</dt><dd>@Display(row, field)</dd></div> }
+                                    </dl></details></td>
+                                }
+                            </tr>
+                        }
+                        @if (rows.Count == 0)
+                        {
+                            <tr><td colspan="@(columns.Length + (salary ? 1 : 0))" class="text-center text-muted py-4">لا توجد سجلات مطابقة للاختيار والبحث الحاليين.</td></tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        }
+    }
+</div>
+
+@code {
+    private EmployeeReportVm? report;
+    private PrintReport BuildPrintReport() => new()
+    {
+        Title = "تقارير الموظفين", Description = appliedDescription + $" | البحث: {search}", Landscape = true,
+        Tables = new[] { true, false }.Select(salary => {
+            var rows = salary ? SalaryRows : HolidayRows;
+            var columns = salary ? SalaryColumns : HolidayColumns;
+            return new PrintTable { Title = salary ? "سجلات الرواتب" : "سجلات الإجازات",
+                Summary = salary ? $"العدد: {rows.Count} | صافي الرواتب: {rows.Sum(r => Number(r, "Net")):N2}" : $"العدد: {rows.Count}",
+                Columns = columns.Select(c => c.Label).ToArray(), Rows = rows.Select(row => columns.Select(c => (string?)Display(row, c)).ToArray()).ToList() };
+        }).ToList()
+    };
+    private IReadOnlyList<MasterLookupOptionVm> employees = [];
+    private string employeeId = "";
+    private DateTime? from;
+    private DateTime? to;
+    private string search = "";
+    private string? error;
+    private string appliedDescription = "";
+    private bool busy;
+    private List<MasterDataRowVm> SalaryRows => Filter(report?.Salaries);
+    private List<MasterDataRowVm> HolidayRows => Filter(report?.Holidays);
+    private static readonly MasterFieldDefinition[] SalaryColumns =
+    [
+        new("EmpName", "الموظف"), new("PayrollID", "رقم المسير"), new("PayrollDate", "تاريخ المسير", MasterFieldKind.Date),
+        new("PayrollDesc", "البيان"), new("BasicSalary", "الراتب الأساسي", MasterFieldKind.Decimal),
+        new("WorkDays", "أيام العمل"), new("Total", "الإجمالي", MasterFieldKind.Decimal), new("Net", "صافي الراتب", MasterFieldKind.Decimal),
+        new("Notes", "ملاحظات")
+    ];
+    private static readonly MasterFieldDefinition[] HolidayColumns =
+    [
+        new("EmpName", "الموظف"), new("RecordId", "رقم الإجازة"), new("HolidayDate", "تاريخ الطلب", MasterFieldKind.Date),
+        new("HolidayTypeName", "نوع الإجازة"), new("HolFrom", "من تاريخ", MasterFieldKind.Date), new("HolTo", "إلى تاريخ", MasterFieldKind.Date),
+        new("PeriodAdd", "مدة الإضافة"), new("PeriodDisc", "مدة الخصم"), new("HolidayDoc", "المستند"), new("Notes", "ملاحظات")
+    ];
+    protected override async Task OnInitializedAsync()
+    {
+        busy = true;
+        try { employees = (await DataService.GetLookupsAsync("holidays")).GetValueOrDefault("EmpID") ?? []; }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Employee report lookups failed: {0}", ex);
+            error = "تعذر تحميل قائمة الموظفين. أعد فتح الصفحة للمحاولة مجددًا.";
+            return;
+        }
+        finally { busy = false; }
+        await LoadAsync();
+    }
+    private async Task LoadAsync()
+    {
+        if (busy) return;
+        error = null;
+        report = null;
+        if (from.HasValue && to.HasValue && from.Value.Date > to.Value.Date)
+        { error = "تاريخ البداية يجب ألا يتجاوز تاريخ النهاية."; return; }
+        busy = true;
+        try
+        {
+            report = await DataService.GetEmployeeReportAsync(employeeId, from, to);
+            var name = string.IsNullOrEmpty(employeeId) ? "جميع الموظفين" : employees.FirstOrDefault(item => item.Value == employeeId)?.Label ?? employeeId;
+            appliedDescription = $"نتائج: {name} | من {from?.ToString("yyyy/MM/dd") ?? "بداية السجلات"} إلى {to?.ToString("yyyy/MM/dd") ?? "نهاية السجلات"}";
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Employee report failed: {0}", ex);
+            error = "تعذر تحميل التقرير. حاول مرة أخرى أو راجع مسؤول النظام.";
+        }
+        finally { busy = false; }
+    }
+    private async Task ResetAsync()
+    {
+        employeeId = search = "";
+        from = to = null;
+        await LoadAsync();
+    }
+    private List<MasterDataRowVm> Filter(List<MasterDataRowVm>? rows) => rows?.Where(row => string.IsNullOrWhiteSpace(search)
+        || row.Id.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase)
+        || row.Values.Values.Any(value => value?.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase) == true)).ToList() ?? [];
+    private static decimal Number(MasterDataRowVm row, string column) =>
+        decimal.TryParse(row.Values.GetValueOrDefault(column), NumberStyles.Number, CultureInfo.InvariantCulture, out var value) ? value : 0m;
+    private static string Display(MasterDataRowVm row, MasterFieldDefinition column)
+    {
+        if (column.Column == "RecordId") return row.Id;
+        var value = row.Values.GetValueOrDefault(column.Column);
+        if (string.IsNullOrWhiteSpace(value)) return column.Column == "EmpName" ? $"موظف رقم {row.Values.GetValueOrDefault("EmpID")}" : "—";
+        if (column.Kind == MasterFieldKind.Decimal) return Number(row, column.Column).ToString("N2");
+        if (column.Kind == MasterFieldKind.Date && DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)) return date.ToString("yyyy/MM/dd");
+        return value;
+    }
+}

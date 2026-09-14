@@ -1,0 +1,183 @@
+﻿@page "/accounting/reports"
+@layout BlazorApp1.Components.Layout.AccountingLayout
+@using BlazorApp1.Services
+@inject IAccountingDataService AccountingDataService
+
+<PageTitle>التقارير - النظام المحاسبي</PageTitle>
+
+<div class="page-content" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3><i class="bi bi-graph-up-arrow me-2"></i>التقارير</h3>
+        <ReportPrintButton Kind="reports" BuildReport="BuildPrintReport" Disabled="@(isLoading || report is null)" />
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-danger" role="alert">@errorMessage</div>
+    }
+    else if (isLoading)
+    {
+        <div class="alert alert-info">جاري تحميل التقارير...</div>
+    }
+    else if (report is not null)
+    {
+        <div class="row g-4 mb-4">
+            <div class="col-md-4">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body">
+                        <div class="text-muted">إجمالي المدين</div>
+                        <h4 class="text-success mb-0">@FormatCurrency(report.TotalDebit)</h4>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body">
+                        <div class="text-muted">إجمالي الدائن</div>
+                        <h4 class="text-danger mb-0">@FormatCurrency(report.TotalCredit)</h4>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body">
+                        <div class="text-muted">صافي الرصيد</div>
+                        <h4 class="@(report.Balance >= 0 ? "text-primary" : "text-danger") mb-0">@FormatCurrency(report.Balance)
+                        </h4>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <div class="col-md-6">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-header bg-transparent border-0 pt-3">
+                        <h5 class="mb-0">التدفق الشهري</h5>
+                    </div>
+                    <div class="card-body">
+                        @if (report.MonthlyFlow.Count == 0)
+                        {
+                            <div class="text-muted">لا توجد بيانات شهرية.</div>
+                        }
+                        else
+                        {
+                            @foreach (var point in report.MonthlyFlow)
+                            {
+                                var monthTotal = point.Debit + point.Credit;
+                                var pct = monthTotal == 0 ? 0 : (int)Math.Round((point.Debit / monthTotal) * 100);
+                                <div class="mb-3">
+                                    <div class="d-flex justify-content-between small mb-1">
+                                        <span>@point.Month</span>
+                                        <span>@FormatCurrency(monthTotal)</span>
+                                    </div>
+                                    <div class="progress" style="height: 8px;">
+                                        <div class="progress-bar bg-success" style="width:@pct%"></div>
+                                        <div class="progress-bar bg-danger" style="width:@(100 - pct)%"></div>
+                                    </div>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card border-0 shadow-sm h-100">
+                    <div class="card-header bg-transparent border-0 pt-3">
+                        <h5 class="mb-0">أعلى الحسابات حركة</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="section-search-bar">
+                            <input aria-label="ابحث باسم الحساب" type="search" class="form-control section-search-input" value="@searchText" @oninput="OnSearchInput" placeholder="ابحث باسم الحساب" />
+                            <button class="btn section-search-btn" @onclick="ApplySearch"><i class="bi bi-search me-1"></i>بحث</button>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle">
+                                <thead>
+                                    <tr>
+                                        <th>الحساب</th>
+                                        <th>مدين</th>
+                                        <th>دائن</th>
+                                        <th>الصافي</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var account in filteredAccounts)
+                                    {
+                                        <tr>
+                                            <td>@account.AccountName</td>
+                                            <td class="text-success">@FormatCurrency(account.Debit)</td>
+                                            <td class="text-danger">@FormatCurrency(account.Credit)</td>
+                                            <td class="@(account.Net >= 0 ? "text-primary" : "text-danger")">@FormatCurrency(account.Net)
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private PrintReport BuildPrintReport() => new() { Title = "ملخص التقارير",
+        Tables = [new PrintTable { Title = "الإجماليات", Columns = ["إجمالي المدين", "إجمالي الدائن", "صافي الرصيد"],
+            Rows = [[FormatCurrency(report!.TotalDebit), FormatCurrency(report.TotalCredit), FormatCurrency(report.Balance)]] },
+            new PrintTable { Title = "التدفق الشهري", Columns = ["الشهر", "مدين", "دائن"],
+                Rows = report.MonthlyFlow.Select(r => new string?[] { r.Month, FormatCurrency(r.Debit), FormatCurrency(r.Credit) }).ToList() },
+            new PrintTable { Title = "أعلى الحسابات حركة", Summary = $"البحث: {searchText}", Columns = ["الحساب", "مدين", "دائن", "الصافي"],
+                Rows = filteredAccounts.Select(r => new string?[] { r.AccountName, FormatCurrency(r.Debit), FormatCurrency(r.Credit), FormatCurrency(r.Net) }).ToList() }] };
+    private ReportsDataVm? report;
+    private List<AccountBalanceVm> filteredAccounts = new();
+    private bool isLoading = true;
+    private string? errorMessage;
+    private string searchText = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            report = await AccountingDataService.GetReportsDataAsync();
+            filteredAccounts = report.TopAccounts.ToList();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex);
+            errorMessage = "تعذر تحميل التقارير؛ حاول مرة أخرى أو راجع مسؤول النظام.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private static string FormatCurrency(decimal value) => value.ToString("N2");
+
+    private void ApplySearch()
+    {
+        if (report is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(searchText))
+        {
+            filteredAccounts = report.TopAccounts.ToList();
+            return;
+        }
+
+        var term = searchText.Trim();
+        filteredAccounts = report.TopAccounts
+            .Where(x => !string.IsNullOrWhiteSpace(x.AccountName) && x.AccountName.Contains(term, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    private void OnSearchInput(ChangeEventArgs e)
+    {
+        searchText = e.Value?.ToString() ?? string.Empty;
+        ApplySearch();
+    }
+}

@@ -1,0 +1,384 @@
+@page "/accounting/hr/payroll/new"
+@page "/accounting/hr/payroll/{PayrollId:long}"
+@layout BlazorApp1.Components.Layout.AccountingLayout
+@using System.Globalization
+@using BlazorApp1.Services
+@inject IMasterDataService DataService
+@inject IUserAccessService Access
+@inject NavigationManager Navigation
+
+<PageTitle>@EditorTitle - النظام المحاسبي</PageTitle>
+
+<div class="page-content journal-entry-page payroll-editor" dir="rtl">
+    <div class="journal-entry-page-heading">
+        <h3 class="page-title"><i class="bi bi-cash-stack"></i>@EditorTitle</h3>
+        <div class="journal-entry-heading-actions">
+            <ReportPrintButton Kind="payroll" BuildReport="BuildPrintReport" Disabled="@(isBusy || document is null)" />
+            <button type="button" class="journal-load-entry-button" @onclick="OpenPreviousAsync" disabled="@(isBusy || document is null)">
+                <i class="bi bi-copy"></i><span>تحميل مسير سابق</span>
+            </button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="Back" disabled="@isBusy"><i class="bi bi-arrow-right"></i>رجوع</button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(error))
+    {
+        <div class="alert alert-danger" role="alert">@error</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(message))
+    {
+        <div class="alert alert-success" role="status">@message</div>
+    }
+    @if (isLoading)
+    {
+        <div class="alert alert-info" role="status">جاري تحميل مسير الرواتب...</div>
+    }
+    @if (showPrevious)
+    {
+        <div class="account-picker-overlay" @onclick="ClosePrevious" @onkeydown="OnPreviousKeyDown">
+        <section class="card payroll-copy-picker" role="dialog" aria-modal="true" aria-labelledby="payroll-copy-title" @onclick:stopPropagation="true">
+            <div class="card-header d-flex justify-content-between">
+                <h5 id="payroll-copy-title" class="mb-0">تحميل مسير سابق</h5>
+                <button type="button" class="btn btn-light btn-sm" disabled="@isBusy" @onclick="ClosePrevious" aria-label="إغلاق نافذة المسيرات السابقة">إغلاق</button>
+            </div>
+            <div class="card-body">
+                @if (!string.IsNullOrWhiteSpace(error))
+                {
+                    <div class="alert alert-danger" role="alert">@error</div>
+                }
+                <p class="text-muted">اختر مسيرًا لنسخ وصفه وتفاصيل موظفيه بدلًا من السطور الحالية. سيبقى رقم المسير الحالي وتاريخه وحالة أرشفته كما هي، ولن تُحفظ التغييرات حتى تضغط «حفظ المسير».</p>
+                <input @ref="copySearchInput" type="search" class="form-control mb-3" aria-label="البحث في المسيرات السابقة" placeholder="ابحث برقم المسير أو الوصف أو التاريخ" @bind="copySearch" @bind:event="oninput" disabled="@isBusy" />
+                @if (previousPayrolls.Count == 500)
+                {
+                    <small class="text-muted">البحث ضمن أحدث 500 مسير.</small>
+                }
+                <div class="payroll-copy-results">
+                    <table class="table table-hover align-middle payroll-copy-table">
+                        <thead><tr><th scope="col">رقم المسير</th><th scope="col">تاريخ المسير</th><th scope="col">البيان</th><th scope="col">صافي الراتب</th><th scope="col">اختيار</th></tr></thead>
+                        <tbody>
+                    @foreach (var previous in FilteredPrevious)
+                    {
+                        <tr>
+                            <td>#@previous.Id</td>
+                            <td class="text-nowrap">@Value(previous, "PayrollDate")</td>
+                            <td class="payroll-copy-description">@Value(previous, "PayrollDesc")</td>
+                            <td class="payroll-number text-nowrap">@FormatPayrollNet(previous)</td>
+                            <td><button type="button" class="btn btn-outline-primary btn-sm" disabled="@isBusy" @onclick="() => CopyAsync(previous.Id)" aria-label="تحميل المسير رقم @previous.Id"><i class="bi bi-copy"></i>تحميل</button></td>
+                        </tr>
+                    }
+                    @if (!FilteredPrevious.Any() && !isBusy)
+                    {
+                        <tr><td colspan="5" class="text-center text-muted">لا توجد مسيرات مطابقة.</td></tr>
+                    }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+        </div>
+    }
+
+    @if (document is not null && !isLoading)
+    {
+        <fieldset disabled="@isBusy" class="payroll-editor-fields">
+            <section class="card journal-entry-header-card">
+                <div class="card-header journal-entry-section-header"><h5 class="mb-0"><i class="bi bi-info-circle-fill"></i>بيانات رأس المسير</h5></div>
+                <div class="card-body payroll-header-grid">
+                    <div>
+                        <label class="form-label" for="payroll-id">رقم المسير</label>
+                        <input id="payroll-id" class="form-control" value="@(string.IsNullOrEmpty(document.Header.Id) ? "تلقائي" : document.Header.Id)" readonly />
+                    </div>
+                    @foreach (var field in HeaderFields)
+                    {
+                        <div class="@(field.Kind == MasterFieldKind.Multiline ? "payroll-wide" : null)">
+                            <label class="form-label" for="@($"payroll-{field.Column}")">@field.Label @if (field.Required) { <span class="text-danger">*</span> }</label>
+                            @if (field.Kind == MasterFieldKind.Boolean)
+                            {
+                                <div class="form-control payroll-archive">
+                                    <input id="@($"payroll-{field.Column}")" type="checkbox" disabled="@(field.Column == "Archive" && !Access.Has("Archive"))" checked="@(Value(document.Header, field.Column) == "true")" @onchange="e => Change(document.Header, field.Column, (e.Value is true).ToString().ToLowerInvariant())" />
+                                    <span>أرشفة المسير</span>
+                                </div>
+                            }
+                            else if (field.Kind == MasterFieldKind.Multiline)
+                            {
+                                <textarea id="@($"payroll-{field.Column}")" class="form-control" rows="2" value="@Value(document.Header, field.Column)" @oninput="e => Change(document.Header, field.Column, e.Value?.ToString())"></textarea>
+                            }
+                            else
+                            {
+                                <input id="@($"payroll-{field.Column}")" type="@(field.Kind == MasterFieldKind.Date ? "date" : "text")" class="form-control" required="@field.Required" value="@Value(document.Header, field.Column)" @oninput="e => Change(document.Header, field.Column, e.Value?.ToString())" />
+                            }
+                        </div>
+                    }
+                </div>
+            </section>
+
+            <section class="card mt-3">
+                <div class="card-header journal-entry-section-header payroll-lines-heading">
+                    <h5 class="mb-0"><i class="bi bi-people"></i>تفاصيل الموظفين <span class="badge bg-light text-dark">@document.Lines.Count سطر</span></h5>
+                    <button type="button" class="btn btn-outline-primary btn-sm" @onclick="AddLine"><i class="bi bi-plus-lg"></i>إضافة سطر</button>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">أدخل بيانات كل موظف في سطر مستقل. مرّر الجدول أفقيًا للوصول إلى جميع الحقول.</p>
+                    <div class="table-responsive payroll-lines-scroll" tabindex="0" role="region" aria-label="جدول تفاصيل الموظفين، قابل للتمرير أفقيًا">
+                        <table class="table table-bordered align-middle payroll-lines-table">
+                            <thead>
+                                <tr class="payroll-column-groups">
+                                    <th colspan="3" scope="colgroup">الموظف والعمل</th>
+                                    <th colspan="6" scope="colgroup">الراتب والبدلات والمكافآت</th>
+                                    <th scope="colgroup">الإجمالي</th>
+                                    <th colspan="4" scope="colgroup">الاستقطاعات</th>
+                                    <th scope="colgroup">الصافي</th>
+                                    <th colspan="2" scope="colgroup">ملاحظات وإجراءات</th>
+                                </tr>
+                                <tr>
+                                    <th scope="col">#</th>
+                                    @foreach (var field in LineFields)
+                                    {
+                                        <th scope="col">@field.Label @if (field.Required) { <span class="text-danger">*</span> }</th>
+                                    }
+                                    <th scope="col">إجراءات</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @for (var index = 0; index < document.Lines.Count; index++)
+                                {
+                                    var line = document.Lines[index];
+                                    var rowNumber = index + 1;
+                                    <tr @key="line">
+                                        <td>@rowNumber</td>
+                                        @foreach (var field in LineFields)
+                                        {
+                                            <td class="@(field.Column == "EmpID" ? "payroll-employee-cell" : null)">
+                                                @if (field.Column == "EmpID")
+                                                {
+                                                    <select class="form-select" aria-label="الموظف في السطر @rowNumber" value="@Value(line, field.Column)" @onchange="e => Change(line, field.Column, e.Value?.ToString())">
+                                                        <option value="">اختر الموظف</option>
+                                                        @if (!string.IsNullOrEmpty(Value(line, "EmpID")) && !employees.Any(employee => employee.Value == Value(line, "EmpID")))
+                                                        {
+                                                            <option value="@Value(line, "EmpID")">موظف رقم @Value(line, "EmpID") (غير متاح)</option>
+                                                        }
+                                                        @foreach (var employee in employees)
+                                                        {
+                                                            <option value="@employee.Value">@employee.Label — #@employee.Value</option>
+                                                        }
+                                                    </select>
+                                                }
+                                                else if (field.Kind == MasterFieldKind.Multiline)
+                                                {
+                                                    <textarea class="form-control" rows="1" aria-label="@($"{field.Label} في السطر {rowNumber}")" value="@Value(line, field.Column)" @oninput="e => Change(line, field.Column, e.Value?.ToString())"></textarea>
+                                                }
+                                                else
+                                                {
+                                                    <input type="number" step="@(field.Kind == MasterFieldKind.Integer ? "1" : "0.01")" class="form-control payroll-number" aria-label="@($"{field.Label} في السطر {rowNumber}")" value="@Value(line, field.Column)" @oninput="e => Change(line, field.Column, e.Value?.ToString())" />
+                                                }
+                                            </td>
+                                        }
+                                        <td><button type="button" class="action-btn action-delete" aria-label="حذف السطر @rowNumber" title="حذف السطر" @onclick="() => RemoveLine(line)"><i class="bi bi-trash"></i></button></td>
+                                    </tr>
+                                }
+                                @if (document.Lines.Count == 0)
+                                {
+                                    <tr><td colspan="17" class="text-center text-muted py-4">لا توجد تفاصيل. اضغط «إضافة سطر» أو حمّل مسيرًا سابقًا.</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <button type="button" class="btn btn-outline-primary btn-sm mt-3" @onclick="AddLine"><i class="bi bi-plus-lg"></i>إضافة سطر</button>
+                </div>
+            </section>
+            <div class="journal-entry-footer payroll-footer">
+                <div class="payroll-totals" aria-live="polite">
+                    <span>عدد السطور <strong>@document.Lines.Count</strong></span>
+                    <span>إجمالي المسير <strong>@Sum("Total").ToString("N2")</strong></span>
+                    <span>صافي المسير <strong>@Sum("Net").ToString("N2")</strong></span>
+                </div>
+                <div class="journal-entry-footer-actions">
+                    <button type="button" class="btn btn-light" @onclick="Back">إلغاء</button>
+                    <button type="button" class="btn btn-primary" @onclick="SaveAsync"><i class="bi bi-check2-circle"></i>@(isBusy ? "جاري التنفيذ..." : "حفظ المسير")</button>
+                </div>
+            </div>
+        </fieldset>
+    }
+</div>
+
+@code {
+    private PrintReport BuildPrintReport()
+    {
+        var result = new PrintReport { Title = $"مسير الرواتب {document!.Header.Id}",
+            Description = "نسخة من البيانات الحالية للمراجعة | " + string.Join(" | ", HeaderFields.Select(f => $"{f.Label}: {Value(document.Header, f.Column)}")) };
+        result.Tables.Add(new PrintTable { Title = "ملخص المسير", Columns = ["عدد الموظفين", "إجمالي المسير", "صافي المسير"],
+            Rows = [[document.Lines.Count.ToString(), Sum("Total").ToString("N2"), Sum("Net").ToString("N2")]] });
+        foreach (var line in document.Lines)
+        {
+            var id = Value(line, "EmpID");
+            result.Tables.Add(new PrintTable { Title = $"{employees.FirstOrDefault(e => e.Value == id)?.Label ?? "موظف"} - {id}", Columns = ["البند", "القيمة"],
+                Rows = LineFields.Where(f => f.Column != "EmpID").Select(f => new string?[] { f.Label, Value(line, f.Column) }).ToList() });
+        }
+        return result;
+    }
+    [Parameter] public long? PayrollId { get; set; }
+    private PayrollDocumentVm? document;
+    private IReadOnlyList<MasterLookupOptionVm> employees = [];
+    private IReadOnlyList<MasterDataRowVm> previousPayrolls = [];
+    private bool isLoading;
+    private bool isBusy;
+    private bool showPrevious;
+    private bool focusCopySearch;
+    private ElementReference copySearchInput;
+    private string copySearch = string.Empty;
+    private string? error;
+    private string? message;
+    private string? pendingSaveMessage;
+    private string EditorTitle => PayrollId.HasValue ? $"تعديل مسير الرواتب #{PayrollId}" : "إضافة مسير رواتب جديد";
+    private IReadOnlyList<MasterFieldDefinition> HeaderFields => DataService.GetSection("payroll").Fields;
+    private IEnumerable<MasterFieldDefinition> LineFields => DataService.GetSection("payroll-trans").Fields
+        .Where(item => item.Column != "PayrollID").OrderBy(item => item.Column == "EmpID" ? 0 : item.Column == "WorkDays" ? 1 : 2);
+    private IEnumerable<MasterDataRowVm> FilteredPrevious => previousPayrolls.Where(row => row.Id != document?.Header.Id &&
+        (string.IsNullOrWhiteSpace(copySearch) || row.Id.Contains(copySearch.Trim(), StringComparison.OrdinalIgnoreCase) ||
+         Value(row, "PayrollDesc").Contains(copySearch.Trim(), StringComparison.OrdinalIgnoreCase) ||
+         Value(row, "PayrollDate").Contains(copySearch.Trim(), StringComparison.OrdinalIgnoreCase)));
+
+    protected override async Task OnParametersSetAsync()
+    {
+        isLoading = isBusy = true;
+        error = null;
+        message = pendingSaveMessage;
+        pendingSaveMessage = null;
+        showPrevious = false;
+        document = null;
+        try
+        {
+            var lookup = await DataService.GetLookupsAsync("payroll-trans");
+            employees = lookup.GetValueOrDefault("EmpID") ?? [];
+            if (PayrollId.HasValue)
+            {
+                document = await DataService.GetPayrollAsync(PayrollId.Value.ToString(CultureInfo.InvariantCulture));
+                if (document is null) error = "لم يتم العثور على مسير الرواتب.";
+            }
+            else
+            {
+                document = new PayrollDocumentVm();
+                document.Header.Values["PayrollDate"] = DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                document.Header.Values["Archive"] = "false";
+                AddLine();
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Payroll load failed: {0}", ex);
+            error = "تعذر تحميل بيانات المسير. ارجع إلى القائمة وأعد المحاولة.";
+        }
+        finally { isLoading = isBusy = false; }
+    }
+
+    private static string Value(MasterDataRowVm row, string column) => row.Values.GetValueOrDefault(column) ?? string.Empty;
+    private static string FormatPayrollNet(MasterDataRowVm row)
+        => decimal.TryParse(Value(row, "Net"), NumberStyles.Number, CultureInfo.InvariantCulture, out var net) ? net.ToString("N2") : "—";
+    private void Change(MasterDataRowVm row, string column, string? value)
+    {
+        row.Values[column] = value;
+        message = null;
+    }
+    private void AddLine() => document?.Lines.Add(new MasterDataRowVm());
+    private void RemoveLine(MasterDataRowVm line) => document?.Lines.Remove(line);
+    private decimal Sum(string column) => document?.Lines.Sum(line =>
+        decimal.TryParse(Value(line, column), NumberStyles.Number, CultureInfo.InvariantCulture, out var number) ? number : 0m) ?? 0m;
+    private void Back() => Navigation.NavigateTo("/accounting/hr/payroll");
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (focusCopySearch && showPrevious && !isBusy)
+        {
+            focusCopySearch = false;
+            await copySearchInput.FocusAsync();
+        }
+    }
+
+    private void ClosePrevious()
+    {
+        if (!isBusy) showPrevious = false;
+    }
+
+    private void OnPreviousKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") ClosePrevious();
+    }
+
+    private async Task OpenPreviousAsync()
+    {
+        if (isBusy) return;
+        isBusy = true;
+        error = null;
+        copySearch = string.Empty;
+        try
+        {
+            previousPayrolls = await DataService.GetPreviousPayrollsAsync();
+            showPrevious = true;
+            focusCopySearch = true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Previous payroll list failed: {0}", ex);
+            error = "تعذر تحميل المسيرات السابقة. حاول مرة أخرى.";
+        }
+        finally { isBusy = false; }
+    }
+
+    private async Task CopyAsync(string id)
+    {
+        if (isBusy || document is null) return;
+        isBusy = true;
+        error = null;
+        try
+        {
+            var source = await DataService.GetPayrollAsync(id);
+            if (source is null) { error = "المسير المحدد لم يعد موجودًا."; return; }
+            document.CopyFrom(source);
+            showPrevious = false;
+            message = $"تم تحميل بيانات المسير رقم {id}. راجع البيانات والتاريخ ثم احفظ المسير.";
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Payroll copy failed: {0}", ex);
+            error = "تعذر نسخ المسير؛ لم تتغير البيانات الحالية.";
+        }
+        finally { isBusy = false; }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (isBusy || document is null) return;
+        isBusy = true;
+        error = message = null;
+        var saved = false;
+        try
+        {
+            var result = await DataService.SavePayrollAsync(document);
+            if (!result.Success) { error = result.Message; return; }
+            saved = true;
+            if (!PayrollId.HasValue && result.EntityId.HasValue)
+            {
+                pendingSaveMessage = result.Message;
+                document = null;
+                Navigation.NavigateTo($"/accounting/hr/payroll/{result.EntityId.Value}", replace: true);
+            }
+            else
+            {
+                // Reload generated detail IDs before allowing a subsequent edit/save.
+                var savedId = document.Header.Id;
+                document = null;
+                document = await DataService.GetPayrollAsync(savedId);
+                message = result.Message;
+                if (document is null) error = "تم الحفظ، لكن تعذر إعادة تحميل المسير. ارجع إلى القائمة وافتحه مجددًا.";
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Payroll editor save failed: {0}", ex);
+            error = saved
+                ? "تم حفظ المسير، لكن تعذر إعادة تحميله. ارجع إلى القائمة وافتحه مجددًا."
+                : "تعذر حفظ المسير. راجع البيانات وأعد المحاولة.";
+        }
+        finally { isBusy = false; }
+    }
+}

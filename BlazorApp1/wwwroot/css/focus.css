@@ -1,0 +1,26 @@
+/* Shared focus policy. Important declarations also cover component-scoped and
+   inline style blocks. The inset outline overlaps existing borders, keeping
+   one thin edge without changing control dimensions, including borderless buttons.
+   Exclude programmatic-only tabindex targets such as FocusOnNavigate headings. */
+:is(input, select, textarea):focus,
+:is(button, a[href], summary, [tabindex]:not([tabindex="-1"]), [contenteditable="true"]):focus-visible,
+.trial-balance-search:focus-within {
+    border-color: var(--ui-focus-color) !important;
+    outline: 1px solid var(--ui-focus-color) !important;
+    outline-offset: -1px !important;
+    box-shadow: var(--ui-focus) !important;
+}
+
+/* This composite search control draws the indicator around its icon and input. */
+.trial-balance-search input:focus {
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+@media (forced-colors: active) {
+    :is(input, select, textarea):focus,
+    :is(button, a[href], summary, [tabindex]:not([tabindex="-1"]), [contenteditable="true"]):focus-visible,
+    .trial-balance-search:focus-within {
+        outline-color: Highlight !important;
+    }
+}

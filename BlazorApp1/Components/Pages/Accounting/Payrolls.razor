@@ -1,0 +1,17 @@
+@page "/accounting/hr/payroll"
+@layout BlazorApp1.Components.Layout.AccountingLayout
+@using BlazorApp1.Services
+@inject NavigationManager Navigation
+
+<PageTitle>مسيرات الرواتب - النظام المحاسبي</PageTitle>
+<div class="page-content payroll-page" dir="rtl">
+    <div class="mb-4">
+        <h3 class="page-title"><i class="bi bi-cash-stack me-2"></i>مسيرات الرواتب</h3>
+        <p class="text-muted mb-0 mt-2">إدارة مسيرات الرواتب وتفاصيل الموظفين في نموذج واحد</p>
+    </div>
+    <MasterDataManager SectionKey="payroll" CreateRequested="CreatePayroll" EditRequested="EditPayroll" />
+</div>
+@code {
+    private void CreatePayroll() => Navigation.NavigateTo("/accounting/hr/payroll/new");
+    private void EditPayroll(MasterDataRowVm row) => Navigation.NavigateTo($"/accounting/hr/payroll/{row.Id}");
+}

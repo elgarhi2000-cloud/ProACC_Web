@@ -1,0 +1,37 @@
+@inject ReportDesignService Designs
+@inject JournalPdfService Pdf
+@inject IAccountingDataService AccountingDataService
+@inject IJSRuntime JS
+@using BlazorApp1.Services
+
+<button type="button" class="journal-row-pdf" title="تصدير القيد إلى PDF" aria-label="@($"تصدير القيد {EntryId} إلى PDF")" disabled="@busy" @onclick="Export">
+    <i class="bi @(busy ? "bi-hourglass-split" : "bi-file-earmark-pdf")" aria-hidden="true"></i>
+</button>
+@if (error is not null) { <small class="text-danger d-block" role="alert">@error</small> }
+@if (notice is not null) { <small class="d-block" role="status">@notice</small> }
+
+@code {
+    [Parameter] public int EntryId { get; set; }
+    [Parameter] public string DesignKind { get; set; } = "journal";
+    private bool busy;
+    private string? error;
+    private string? notice;
+    private async Task Export()
+    {
+        if (busy) return;
+        busy = true; error = notice = null;
+        try
+        {
+            var report = await AccountingDataService.GetSavedJournalExportAsync(EntryId);
+            if (report is null) { error = "القيد غير موجود. حدّث السجلات."; return; }
+            report.Design = await Designs.ForPrintAsync(DesignKind);
+            var bytes = await Pdf.GenerateAsync(report);
+            using var stream = new MemoryStream(bytes);
+            using var streamReference = new DotNetStreamReference(stream);
+            await JS.InvokeVoidAsync("journalEntryExport.downloadPdf", $"قيد_{report.EntryId}.pdf", streamReference);
+            notice = $"تم بدء تنزيل قيد_{report.EntryId}.pdf";
+        }
+        catch { error = "تعذر تصدير القيد. حاول مجدداً."; }
+        finally { busy = false; }
+    }
+}

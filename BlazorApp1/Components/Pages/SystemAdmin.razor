@@ -1,0 +1,26 @@
+@page "/system-admin"
+@page "/system-admin/databases"
+@layout BlazorApp1.Components.Layout.SystemAdminLayout
+@using BlazorApp1.Components.Shared
+@using BlazorApp1.Services
+@inject ISystemAdminSession AdminSession
+
+<PageTitle>إدارة قواعد المنشآت - ProACC</PageTitle>
+
+@if (AdminSession.IsAuthenticated)
+{
+    <div class="admin-page-heading" dir="rtl">
+        <div><span>لوحة تحكم النظام</span><h1>قواعد المنشآت ورموز الدخول</h1><p>إدارة مركزية مستقلة عن بيانات وإعدادات المنشآت.</p></div>
+        <span class="system-admin-badge"><i class="bi bi-shield-check"></i> SystemAdmin</span>
+    </div>
+    <CompanyDatabaseRegistryManager />
+}
+
+<style>
+    .admin-page-heading { margin-bottom: 18px; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+    .admin-page-heading > div > span { color: #675bd6; font-size: .72rem; font-weight: 800; }
+    .admin-page-heading h1 { margin: 2px 0 3px; font-size: 1.35rem; font-weight: 850; }
+    .admin-page-heading p { margin: 0; color: #7a8190; font-size: .8rem; }
+    .system-admin-badge { padding: 8px 11px; display: inline-flex; align-items: center; gap: 6px; color: #176b44; background: #e8f8f0; border-radius: 999px; font-size: .73rem; font-weight: 800; }
+    @@media (max-width: 640px) { .admin-page-heading { align-items: flex-start; flex-direction: column; } }
+</style>

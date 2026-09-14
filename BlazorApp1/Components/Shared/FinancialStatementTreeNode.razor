@@ -1,0 +1,39 @@
+@using BlazorApp1.Services
+
+@if (Node.IsAccount)
+{
+    <div class="financial-tree-row account-row" style="--tree-level: @Node.Level">
+        <div class="financial-node-info">
+            <span class="financial-node-code">@Node.Code</span>
+            <span class="financial-node-name">@Node.Name</span>
+        </div>
+        <strong class="financial-node-balance @(Node.NetBalance < 0 ? "negative" : "")">@FormatBalance(Node.NetBalance)</strong>
+    </div>
+}
+else
+{
+    <details class="financial-tree-branch level-@Node.Level" open>
+        <summary class="financial-tree-row" style="--tree-level: @Node.Level">
+            <div class="financial-node-info">
+                <i class="bi bi-chevron-left financial-tree-arrow"></i>
+                <span class="financial-level-badge">@Node.LevelName</span>
+                <span class="financial-node-code">@Node.Code</span>
+                <span class="financial-node-name">@Node.Name</span>
+            </div>
+            <strong class="financial-node-balance @(Node.NetBalance < 0 ? "negative" : "")">@FormatBalance(Node.NetBalance)</strong>
+        </summary>
+        <div class="financial-tree-children">
+            @foreach (var child in Node.Children)
+            {
+                <FinancialStatementTreeNode Node="child" />
+            }
+        </div>
+    </details>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public FinancialStatementNodeVm Node { get; set; } = default!;
+
+    private static string FormatBalance(decimal value) => value.ToString("N2");
+}

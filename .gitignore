@@ -1,0 +1,13 @@
+.vs/
+**/bin/
+**/obj/
+**/App_Data/
+*.user
+*.suo
+**/appsettings.Local.json
+.env
+.env.*
+*.pfx
+*.p12
+*.pem
+*.bak

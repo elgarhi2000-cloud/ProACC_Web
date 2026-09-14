@@ -1,0 +1,12 @@
+@page "/accounting/receipts"
+@layout BlazorApp1.Components.Layout.AccountingLayout
+@using BlazorApp1.Components.Shared
+
+<PageTitle>سندات القبض - النظام المحاسبي</PageTitle>
+
+<SourceTransactionsView Title="سندات القبض"
+                        DetailsTitle="تفاصيل حركات سندات القبض"
+                        SourceId="2"
+                        CreateButtonLabel="إضافة سند قبض"
+                        ReturnUrl="/accounting/receipts"
+                        Icon="bi-receipt" />

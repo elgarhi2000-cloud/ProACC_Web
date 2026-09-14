@@ -1,0 +1,101 @@
+@page "/accounting/settings"
+@layout BlazorApp1.Components.Layout.AccountingLayout
+@using BlazorApp1.Services
+@inject IMasterDataService MasterDataService
+@inject IUserAccessService Access
+
+<PageTitle>الإعدادات - النظام المحاسبي</PageTitle>
+
+<div class="page-content settings-page" dir="rtl">
+    <div class="settings-heading">
+        <div>
+            <h3 class="mb-1"><i class="bi bi-gear me-2"></i>إعدادات النظام</h3>
+            <p class="text-muted mb-0">إدارة التعريفات الأساسية والمالية وصلاحيات المستخدمين من مكان واحد</p>
+        </div>
+        <span class="badge bg-primary">@sections.Count قسم</span>
+    </div>
+
+    <div class="settings-layout">
+        <aside class="card settings-nav-card">
+            <div class="settings-nav-search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" value="@sectionSearch" @oninput="OnSectionSearch" placeholder="ابحث في الإعدادات" />
+            </div>
+
+            <div class="settings-nav-groups">
+                @foreach (var group in FilteredSections.GroupBy(x => x.Category))
+                {
+                    <div class="settings-nav-group">
+                        <span class="settings-group-title">@group.Key</span>
+                        @foreach (var section in group)
+                        {
+                            <button class="settings-nav-item @(selectedSectionKey == section.Key ? "active" : null)"
+                                    type="button" @onclick="() => SelectSection(section.Key)">
+                                <i class="bi @section.Icon"></i>
+                                <span>@section.Title</span>
+                                <i class="bi bi-chevron-left settings-nav-arrow"></i>
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+        </aside>
+
+        <main class="settings-content">
+            @if (sections.Any(x => x.Key == selectedSectionKey))
+            {
+                <MasterDataManager @key="selectedSectionKey" SectionKey="@selectedSectionKey" />
+            }
+        </main>
+    </div>
+</div>
+
+<style>
+    .settings-heading { min-height: 52px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; gap: 15px; }
+    .settings-layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); align-items: start; gap: 20px; }
+    .settings-nav-card { position: sticky; top: 0; max-height: calc(100vh - 145px); overflow: hidden; }
+    .settings-nav-search { position: relative; padding: 14px; border-bottom: 1px solid var(--q-border); }
+    .settings-nav-search > i { position: absolute; right: 27px; top: 50%; z-index: 1; color: var(--q-muted); transform: translateY(-50%); }
+    .settings-nav-search .form-control { padding-right: 38px; }
+    .settings-nav-groups { padding: 8px; overflow-y: auto; }
+    .settings-nav-group { margin-bottom: 7px; }
+    .settings-group-title { display: block; padding: 8px 9px 5px; color: var(--q-muted); font-size: .7rem; font-weight: 800; }
+    .settings-nav-item { width: 100%; min-height: 42px; padding: 8px 10px; display: flex; align-items: center; gap: 9px; color: var(--q-text); text-align: right; background: transparent; border: 0; border-radius: 8px; font-size: .84rem; font-weight: 700; }
+    .settings-nav-item > i:first-child { width: 27px; height: 27px; display: grid; place-items: center; color: var(--q-muted); background: var(--q-primary-faint); border-radius: 7px; }
+    .settings-nav-item span { flex: 1; }
+    .settings-nav-arrow { color: #b2b7c1; font-size: .67rem; }
+    .settings-nav-item:hover { color: var(--q-primary); background: var(--q-primary-faint); }
+    .settings-nav-item.active { color: var(--q-primary-dark); background: var(--q-primary-soft); }
+    .settings-nav-item.active > i:first-child { color: var(--q-primary); background: #e4e0fa; }
+    .settings-content { min-width: 0; }
+    @@media (max-width: 1050px) {
+        .settings-layout { grid-template-columns: 1fr; }
+        .settings-nav-card { position: static; max-height: none; }
+        .settings-nav-groups { display: flex; gap: 8px; overflow-x: auto; }
+        .settings-nav-group { min-width: 225px; }
+    }
+</style>
+
+@code {
+    private IReadOnlyList<MasterSectionDefinition> sections = Array.Empty<MasterSectionDefinition>();
+    private string selectedSectionKey = "companies";
+    private string sectionSearch = string.Empty;
+
+    private IEnumerable<MasterSectionDefinition> FilteredSections
+        => string.IsNullOrWhiteSpace(sectionSearch)
+            ? sections
+            : sections.Where(x => x.Title.Contains(sectionSearch.Trim(), StringComparison.OrdinalIgnoreCase)
+                                  || x.Category.Contains(sectionSearch.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    protected override void OnInitialized()
+    {
+        sections = MasterDataService.GetSections("settings");
+        if (!sections.Any(x => x.Key == selectedSectionKey))
+        {
+            selectedSectionKey = sections.FirstOrDefault()?.Key ?? "companies";
+        }
+    }
+
+    private void SelectSection(string key) => selectedSectionKey = key;
+    private void OnSectionSearch(ChangeEventArgs e) => sectionSearch = e.Value?.ToString() ?? string.Empty;
+}

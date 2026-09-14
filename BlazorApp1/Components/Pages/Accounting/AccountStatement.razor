@@ -1,0 +1,441 @@
+﻿@page "/accounting/reports/account-statement"
+@layout BlazorApp1.Components.Layout.AccountingLayout
+@using BlazorApp1.Services
+@inject IAccountingDataService AccountingDataService
+
+<PageTitle>كشف حساب - النظام المحاسبي</PageTitle>
+
+<div class="page-content account-statement-page" dir="rtl">
+    <div class="statement-heading mb-4">
+        <div>
+            <h3 class="mb-1"><i class="bi bi-file-earmark-spreadsheet me-2"></i>كشف حساب</h3>
+            <p class="text-muted mb-0">عرض حركات كل حساب خلال الفترة الزمنية المحددة</p>
+        </div>
+        <div class="page-toolbar-actions">
+        @if (statements.Count > 0)
+        {
+            <span class="badge bg-primary statement-count">@statements.Sum(x => x.Lines.Count) حركة</span>
+            @if (!isLoading)
+            {
+                @foreach (var result in statements)
+                {
+                    <div class="d-flex align-items-center gap-2" @key="result">
+                        @if (statements.Count > 1) { <span>@result.AccountId - @result.AccountName</span> }
+                        <SectionOutlet SectionId="@result" />
+                    </div>
+                }
+            }
+        }
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-danger" role="alert">@errorMessage</div>
+    }
+
+    <div class="card border-0 shadow-sm filter-card mb-4">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-lg-5">
+                    <label class="form-label" for="statementAccount">الحسابات</label>
+                    <button id="statementAccount" type="button" class="btn btn-outline-primary w-100 d-flex justify-content-between align-items-center" @onclick="OpenAccountSearch" disabled="@(isLoading || accounts.Count == 0)" aria-haspopup="dialog">
+                        <span>@(selectedAccountIds.Count == 0 ? "ابحث واختر الحسابات" : $"تم اختيار {selectedAccountIds.Count} حساب — تغيير الاختيار")</span><i class="bi bi-search"></i>
+                    </button>
+                </div>
+                <div class="col-sm-6 col-lg-2">
+                    <label class="form-label" for="statementFromDate">من تاريخ</label>
+                    <input id="statementFromDate" class="form-control" type="date" disabled="@isLoading" @bind="fromDate" />
+                </div>
+                <div class="col-sm-6 col-lg-2">
+                    <label class="form-label" for="statementToDate">إلى تاريخ</label>
+                    <input id="statementToDate" class="form-control" type="date" disabled="@isLoading" @bind="toDate" />
+                </div>
+                <div class="col-lg-3 d-flex gap-2">
+                    <button type="button" class="btn btn-primary flex-grow-1" @onclick="LoadStatementAsync" disabled="@(isLoading || selectedAccountIds.Count == 0)">
+                        <i class="bi bi-funnel me-1"></i>تطبيق
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" @onclick="ResetDatesAsync" disabled="@isLoading" title="إعادة تعيين الفترة">
+                        <i class="bi bi-arrow-counterclockwise"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="alert alert-info">جاري تحميل كشف الحساب...</div>
+    }
+    else if (accounts.Count == 0)
+    {
+        <div class="alert alert-warning">لا توجد حسابات متاحة.</div>
+    }
+    else if (statements.Count > 0)
+    {
+        <p class="text-muted">الكشوف المعروضة: @statements.Count حساب · من @(appliedFrom?.ToString("yyyy/MM/dd") ?? "البداية") إلى @(appliedTo?.ToString("yyyy/MM/dd") ?? "النهاية")</p>
+        @foreach (var result in statements)
+        {
+            <AccountStatementResult @key="result.AccountId" statement="result" ToolbarSection="@result" PeriodDescription="@($"من {appliedFrom:yyyy/MM/dd} إلى {appliedTo:yyyy/MM/dd}")" />
+        }
+    }
+
+    @if (showAccountSearch)
+    {
+        <div class="account-search-backdrop" @onclick="CloseAccountSearch">
+            <div class="account-search-dialog" role="dialog" aria-modal="true" aria-labelledby="accountSearchTitle" @onclick:stopPropagation="true">
+                <div class="account-search-header">
+                    <div>
+                        <h5 id="accountSearchTitle" class="mb-1">اختيار الحسابات</h5>
+                        <small class="text-muted">ابحث بالرقم أو الاسم، وحدد حسابًا أو أكثر</small>
+                    </div>
+                    <button type="button" class="btn-close" @onclick="CloseAccountSearch" aria-label="إغلاق"></button>
+                </div>
+                <div class="account-search-body">
+                    <div class="input-group mb-3">
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <input class="form-control" value="@accountSearchText" @oninput="OnAccountSearchInput" placeholder="اكتب رقم الحساب أو الاسم" autofocus />
+                    </div>
+
+                    <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+                        <span>@draftAccountIds.Count حساب محدد</span>
+                        <button type="button" class="btn btn-sm btn-light" @onclick="SelectSearchResults">تحديد نتائج البحث</button>
+                        <button type="button" class="btn btn-sm btn-light" @onclick="() => draftAccountIds.Clear()">مسح الاختيار</button>
+                    </div>
+                    <div class="account-search-results">
+                        @if (!GetFilteredAccounts().Any())
+                        {
+                            <div class="text-center text-muted py-4">لا توجد حسابات مطابقة.</div>
+                        }
+                        else
+                        {
+                            @foreach (var account in GetFilteredAccounts())
+                            {
+                                <label class="account-result @(draftAccountIds.Contains(account.AccountId) ? "selected" : "")">
+                                    <span class="account-result-number">@account.AccountId</span>
+                                    <strong>@account.AccountName</strong>
+                                    <input type="checkbox" checked="@draftAccountIds.Contains(account.AccountId)" @onchange="() => ToggleAccount(account.AccountId)" aria-label="@($"اختيار {account.AccountName}")" />
+                                </label>
+                            }
+                        }
+                    </div>
+                </div>
+                <div class="d-flex justify-content-end gap-2 p-3 border-top">
+                    <button type="button" class="btn btn-light" @onclick="CloseAccountSearch">إلغاء</button>
+                    <button type="button" class="btn btn-primary" disabled="@(draftAccountIds.Count == 0)" @onclick="ConfirmAccountsAsync">عرض كشوف الحسابات (@draftAccountIds.Count)</button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .statement-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+    }
+
+    .statement-count {
+        padding: 9px 14px;
+        border-radius: 999px;
+    }
+
+    .filter-card,
+    .statement-table-card {
+        border-radius: 16px;
+    }
+
+    .filter-card .form-label {
+        color: #475569;
+        font-size: .85rem;
+        font-weight: 700;
+    }
+
+    .account-picker {
+        display: flex;
+        align-items: stretch;
+        gap: 8px;
+    }
+
+    .account-picker-select {
+        min-width: 0;
+        padding-left: 2.5rem;
+        background-position: left .75rem center;
+    }
+
+    .account-search-button {
+        width: 38px;
+        flex: 0 0 38px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        color: #2563eb;
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+        border-radius: 8px;
+        transition: color .15s ease, background .15s ease, border-color .15s ease;
+    }
+
+    .account-search-button:hover:not(:disabled) {
+        color: #fff;
+        background: #2563eb;
+        border-color: #2563eb;
+    }
+
+    .account-search-button:focus-visible {
+        outline: 3px solid rgba(37, 99, 235, .22);
+        outline-offset: 2px;
+    }
+
+    .account-search-button:disabled {
+        opacity: .5;
+        cursor: not-allowed;
+    }
+
+    .account-search-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1080;
+        display: grid;
+        place-items: center;
+        padding: 18px;
+        background: rgba(15, 23, 42, .52);
+        backdrop-filter: blur(2px);
+    }
+
+    .account-search-dialog {
+        width: min(620px, 100%);
+        max-height: min(680px, calc(100vh - 36px));
+        display: flex;
+        flex-direction: column;
+        background: #fff;
+        border-radius: 18px;
+        box-shadow: 0 24px 70px rgba(15, 23, 42, .24);
+        overflow: hidden;
+    }
+
+    .account-search-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 18px 20px;
+        border-bottom: 1px solid #e5e7eb;
+    }
+
+    .account-search-body {
+        min-height: 0;
+        padding: 18px 20px 20px;
+        overflow-y: auto;
+    }
+
+    .account-search-results {
+        max-height: 430px;
+        display: grid;
+        gap: 7px;
+        overflow-y: auto;
+    }
+
+    .account-result {
+        width: 100%;
+        display: grid;
+        grid-template-columns: minmax(90px, auto) 1fr auto;
+        align-items: center;
+        gap: 12px;
+        padding: 11px 13px;
+        color: #0f172a;
+        text-align: right;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 11px;
+        transition: background .15s ease, border-color .15s ease;
+    }
+
+    .account-result:hover,
+    .account-result.selected {
+        background: #eff6ff;
+        border-color: #93c5fd;
+    }
+
+    .account-result-number {
+        color: #2563eb;
+        font-size: .8rem;
+        font-weight: 800;
+        direction: ltr;
+        text-align: right;
+    }
+
+    .account-result i {
+        color: #2563eb;
+    }
+
+    .statement-account-card {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 15px 18px;
+        color: #fff;
+        background: linear-gradient(135deg, #1e3a8a, #3b82f6);
+        border-radius: 16px;
+    }
+
+    .statement-account-icon {
+        width: 42px;
+        height: 42px;
+        display: grid;
+        place-items: center;
+        background: rgba(255, 255, 255, .16);
+        border-radius: 12px;
+        font-size: 1.25rem;
+    }
+
+    .statement-account-card span,
+    .statement-account-card strong {
+        display: block;
+    }
+
+    .statement-account-card span {
+        margin-bottom: 2px;
+        font-size: .78rem;
+        opacity: .82;
+    }
+
+    .summary-card {
+        min-height: 106px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 7px;
+        padding: 17px;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-right: 5px solid #64748b;
+        border-radius: 14px;
+        box-shadow: 0 5px 18px rgba(15, 23, 42, .06);
+    }
+
+    .summary-card span {
+        color: #64748b;
+        font-size: .82rem;
+        font-weight: 700;
+    }
+
+    .summary-card strong {
+        color: #0f172a;
+        font-size: 1.08rem;
+    }
+
+    .opening-card { border-right-color: #64748b; }
+    .debit-card { border-right-color: #16a34a; }
+    .credit-card { border-right-color: #dc2626; }
+    .closing-card { border-right-color: #2563eb; }
+
+    .statement-table th {
+        color: #475569;
+        background: #f8fafc;
+        font-size: .83rem;
+        white-space: nowrap;
+    }
+
+    .statement-table td {
+        font-size: .86rem;
+    }
+
+    .description-cell {
+        min-width: 180px;
+        max-width: 320px;
+    }
+
+    @@media (max-width: 768px) {
+        .statement-heading {
+            align-items: flex-start;
+        }
+
+        .statement-heading h3 {
+            font-size: 1.35rem;
+        }
+    }
+</style>
+
+@code {
+    private List<AccountStatementAccountVm> accounts = new();
+    private List<AccountStatementVm> statements = new();
+    private HashSet<long> selectedAccountIds = new(), draftAccountIds = new();
+    private DateTime? fromDate, toDate, defaultFromDate, defaultToDate, appliedFrom, appliedTo;
+    private string accountSearchText = "";
+    private string? errorMessage;
+    private bool isLoading = true, showAccountSearch;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var settings = await AccountingDataService.GetSettingsDataAsync();
+            fromDate = defaultFromDate = settings.ActivePeriodStart?.Date;
+            toDate = defaultToDate = settings.ActivePeriodEnd?.Date;
+            accounts = (await AccountingDataService.GetAccountStatementAccountsAsync()).ToList();
+            if (accounts.FirstOrDefault() is { } first)
+            {
+                selectedAccountIds.Add(first.AccountId);
+                await LoadStatementCoreAsync();
+            }
+        }
+        catch { errorMessage = "تعذر تحميل كشوف الحسابات. تحقق من الاتصال ثم حاول مجدداً."; }
+        finally { isLoading = false; }
+    }
+    private void OpenAccountSearch()
+    {
+        if (isLoading) return;
+        draftAccountIds = new(selectedAccountIds);
+        accountSearchText = "";
+        showAccountSearch = true;
+    }
+    private void CloseAccountSearch() => showAccountSearch = false;
+    private void OnAccountSearchInput(ChangeEventArgs e) => accountSearchText = e.Value?.ToString() ?? "";
+    private IEnumerable<AccountStatementAccountVm> GetFilteredAccounts() => accounts.Where(x =>
+        string.IsNullOrWhiteSpace(accountSearchText) || x.AccountId.ToString().Contains(accountSearchText.Trim()) ||
+        x.AccountName.Contains(accountSearchText.Trim(), StringComparison.OrdinalIgnoreCase));
+    private void ToggleAccount(long id) { if (!draftAccountIds.Add(id)) draftAccountIds.Remove(id); }
+    private void SelectSearchResults() => draftAccountIds.UnionWith(GetFilteredAccounts().Select(x => x.AccountId));
+    private async Task ConfirmAccountsAsync()
+    {
+        if (isLoading || draftAccountIds.Count == 0) return;
+        selectedAccountIds = new(draftAccountIds);
+        showAccountSearch = false;
+        await LoadStatementAsync();
+    }
+    private async Task LoadStatementAsync()
+    {
+        if (isLoading || selectedAccountIds.Count == 0) return;
+        if (fromDate.HasValue && toDate.HasValue && fromDate.Value.Date > toDate.Value.Date)
+        {
+            errorMessage = "يجب أن يكون تاريخ البداية أقدم من تاريخ النهاية أو مساويًا له. الكشوف الظاهرة تخص آخر فترة تم تطبيقها.";
+            return;
+        }
+        isLoading = true; errorMessage = null;
+        try { await LoadStatementCoreAsync(); }
+        catch { errorMessage = "تعذر تحميل الكشوف المطلوبة. أعد المحاولة؛ الكشوف السابقة لم تتغير."; }
+        finally { isLoading = false; }
+    }
+    private async Task LoadStatementCoreAsync()
+    {
+        var results = new List<AccountStatementVm>();
+        var start = fromDate; var end = toDate;
+        // Sequential calls share the scoped accounting context; publish only a complete result set.
+        foreach (var id in selectedAccountIds.OrderBy(x => x))
+        {
+            var result = await AccountingDataService.GetAccountStatementAsync(id, start, end);
+            if (result is null) throw new InvalidOperationException("الحساب لم يعد موجوداً.");
+            results.Add(result);
+        }
+        statements = results; appliedFrom = start; appliedTo = end;
+    }
+    private async Task ResetDatesAsync()
+    {
+        if (isLoading) return;
+        fromDate = defaultFromDate; toDate = defaultToDate;
+        await LoadStatementAsync();
+    }
+}

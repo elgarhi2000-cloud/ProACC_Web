@@ -1,0 +1,106 @@
+.dashboard {
+    max-width: none;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.dashboard > .mb-4 { margin-bottom: 0 !important; }
+.dashboard > .row { --bs-gutter-x: 12px; --bs-gutter-y: 12px; margin-top: -12px; }
+.dashboard > * { min-width: 0; }
+
+.dashboard .dashboard-hero {
+    min-height: 92px;
+    padding: 12px 18px;
+    gap: 16px;
+    border-radius: 10px !important;
+    box-shadow: 0 3px 10px rgba(78, 63, 188, .1) !important;
+}
+.dashboard .hero-copy { min-width: 0; }
+.dashboard .hero-kicker { margin-bottom: 3px; }
+.dashboard .hero-title { font-size: 1.2rem !important; }
+.dashboard .hero-subtitle { margin-top: 3px; font-size: .8rem; }
+.dashboard .hero-context-wrap { gap: 8px; }
+.dashboard .hero-context { width: auto; padding: 3px; grid-template-columns: minmax(0, 1fr) auto; }
+.dashboard .hero-context-item { padding: 5px 8px; gap: 7px; }
+.dashboard .hero-context-item i { width: 28px; height: 28px; flex-basis: 28px; }
+.dashboard .hero-date { padding: 7px 11px; gap: 3px; }
+.dashboard .hero-date-gregorian { font-size: .9rem; }
+.dashboard .hero-date-hijri { font-size: .72rem; }
+.dashboard .hero-context, .dashboard .hero-date { border-radius: 8px !important; }
+
+.dashboard .financial-kpi-grid { gap: 12px; }
+.dashboard .financial-kpi-card { padding: 11px 14px; border-radius: 10px; }
+.dashboard .financial-kpi-head { gap: 8px; justify-content: flex-start; }
+.dashboard .dashboard-card-title { display: flex; align-items: center; gap: 7px; }
+.dashboard .dashboard-title-icon { display: inline-grid; place-items: center; width: 25px; height: 25px; flex: 0 0 25px; border-radius: 7px; font-size: .85rem; }
+.dashboard .title-accounts { color: #6550d8; background: #f0edff; }
+.dashboard .title-important { color: #a76b09; background: #fff5df; }
+.dashboard .title-entries { color: #2474b7; background: #eaf4ff; }
+.dashboard .financial-kpi-icon { width: 30px; height: 30px; flex-basis: 30px; font-size: .95rem; border-radius: 8px; }
+.dashboard .financial-kpi-amount { margin: 3px 0 6px; }
+.dashboard .financial-kpi-amount strong { font-size: clamp(1.25rem, 1.6vw, 1.65rem); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.dashboard .financial-kpi-meta { padding-top: 6px; }
+.dashboard .financial-kpi-progress { height: 5px; margin: 6px 0 4px; }
+.dashboard .financial-kpi-card > small { color: #5f6c80; }
+
+.dashboard .documents-strip { gap: 6px; padding: 6px; border-radius: 10px; }
+.dashboard .document-summary-item { padding: 6px 9px; gap: 8px; border-radius: 7px; }
+.dashboard a.document-summary-item { text-decoration: none; color: inherit; transition: background-color .15s ease, border-color .15s ease; }
+.dashboard a.document-summary-item:hover { background: #eeebff; border-color: #c9c0f8; }
+.dashboard a.document-summary-item:focus-visible { outline: 2px solid #6550d8; outline-offset: 2px; }
+.dashboard .document-summary-item > div:last-child { flex: 1; flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; }
+.dashboard .document-summary-item strong { font-size: 1rem; }
+.dashboard .document-summary-item span { font-size: .75rem; }
+.dashboard .document-summary-icon { width: 28px; height: 28px; flex-basis: 28px; font-size: .85rem; }
+
+.dashboard .analytics-grid { grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr); gap: 12px; }
+.dashboard .insights-grid { gap: 12px; }
+.dashboard .dashboard-analytics-card { padding: 12px 14px; border-radius: 10px; }
+.dashboard .analytics-card-header { padding-bottom: 7px; }
+.dashboard .analytics-card-header h5 { font-size: .9rem; }
+.dashboard .analytics-card-header p { margin-top: 3px; color: #5f6c80; }
+.dashboard .chart-legend { padding: 7px 0 0; gap: 16px; }
+.dashboard .comparison-chart { height: 170px; padding: 8px 8px 0; gap: 8px; background-size: auto; background-image: repeating-linear-gradient(to top, #e9edf2 0 1px, transparent 1px 36px); overflow-x: auto; }
+.dashboard .comparison-group { grid-template-rows: minmax(0, 1fr) 26px; gap: 5px; }
+.dashboard .distribution-card .level0-pie-wrap { min-height: 0; flex: 1; padding: 8px 0; }
+.dashboard .distribution-card .level0-pie { width: min(100%, 240px); height: auto; aspect-ratio: 1; padding: 0; }
+.dashboard .donut-legend { gap: 4px 10px; }
+.dashboard .balance-empty { min-height: 80px; }
+
+.dashboard .modern-card { border-radius: 10px; }
+.dashboard .card-header { min-height: 36px; padding: 9px 12px 5px !important; }
+.dashboard .card-body { padding: 8px 12px 10px !important; }
+.dashboard .balance-table-wrap { max-height: 230px; border-radius: 6px; }
+.dashboard .table { margin-bottom: 0; font-variant-numeric: tabular-nums; }
+.dashboard .table > :not(caption) > * > * { padding: 5px 8px; font-size: .78rem; line-height: 1.45; }
+.dashboard .table thead th { height: 30px; }
+.dashboard .balance-code { display: inline-block; margin-inline-end: 6px; font-size: .7rem; }
+.dashboard .balance-name { display: inline; min-width: 0; }
+.dashboard .section-search-bar { margin-bottom: 7px !important; }
+.dashboard .insights-grid .level1-bar-chart { padding: 10px 0 0; gap: 9px; }
+.dashboard .insights-grid .level1-bar-track { height: 7px; }
+.dashboard .indicator-list { padding-top: 8px; gap: 6px; }
+.dashboard .indicator-item { min-height: 40px; padding: 5px 8px; gap: 8px; border-radius: 7px; }
+.dashboard .indicator-icon { width: 26px; height: 26px; }
+.dashboard .indicator-item strong { padding: 4px 7px; }
+
+@media (max-width: 1100px) {
+    .dashboard .dashboard-hero { flex-wrap: wrap; }
+    .dashboard .hero-context-wrap { flex-wrap: wrap; }
+    .dashboard .document-summary-item > div:last-child { flex-direction: column; align-items: flex-start; gap: 2px; }
+}
+@media (max-width: 992px) {
+    .dashboard .analytics-grid { grid-template-columns: minmax(0, 1.6fr) minmax(220px, 1fr); }
+    .dashboard .hero-context-wrap { width: 100%; }
+}
+@media (max-width: 767px) {
+    .dashboard { gap: 10px; }
+    .dashboard .analytics-grid, .dashboard .insights-grid { grid-template-columns: 1fr; }
+    .dashboard .financial-kpi-grid { gap: 8px; }
+    .dashboard .financial-kpi-card { padding: 10px; }
+    .dashboard .hero-context { grid-template-columns: minmax(0, 1fr); }
+    .dashboard .comparison-chart { height: 180px; }
+    .dashboard .document-summary-item span { white-space: normal; }
+    .dashboard .balance-table-wrap { max-height: 260px; }
+}

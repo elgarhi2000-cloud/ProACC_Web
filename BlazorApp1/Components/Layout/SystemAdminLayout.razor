@@ -1,0 +1,66 @@
+@inherits LayoutComponentBase
+@using BlazorApp1.Services
+@inject ISystemAdminSession AdminSession
+@inject ISystemAdminAuthService AdminAuthService
+@inject NavigationManager NavigationManager
+
+<div class="system-admin-layout" dir="rtl">
+    <header class="admin-topbar">
+        <div class="admin-brand">
+            <span class="admin-brand-icon"><i class="bi bi-shield-lock-fill"></i></span>
+            <div><strong>إدارة النظام</strong><span>منطقة مستقلة خاصة بمدير النظام</span></div>
+        </div>
+        <div class="admin-actions">
+            @if (AdminSession.IsAuthenticated)
+            {
+                <span class="admin-user"><i class="bi bi-person-badge"></i>@AdminSession.UserName</span>
+                <button class="btn btn-outline-danger btn-sm" type="button" @onclick="LogoutAsync">
+                    <i class="bi bi-box-arrow-left"></i> إنهاء الجلسة
+                </button>
+            }
+        </div>
+    </header>
+
+    <main class="admin-content">
+        @if (AdminSession.IsAuthenticated)
+        {
+            @Body
+        }
+        else
+        {
+            <div class="admin-session-expired"><span class="spinner-border spinner-border-sm"></span> جاري التوجيه إلى دخول مدير النظام...</div>
+        }
+    </main>
+</div>
+
+<style>
+    .system-admin-layout { min-height: 100vh; color: #303544; background: #f3f5f8; }
+    .admin-topbar { min-height: 72px; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; background: #fff; border-bottom: 1px solid #e1e5eb; box-shadow: 0 2px 8px rgba(16,24,40,.035); }
+    .admin-brand, .admin-actions, .admin-user { display: flex; align-items: center; gap: 10px; }
+    .admin-brand-icon { width: 42px; height: 42px; display: grid; place-items: center; color: #fff; background: #4338ca; border-radius: 11px; }
+    .admin-brand > div { display: flex; flex-direction: column; }
+    .admin-brand strong { font-size: .98rem; }
+    .admin-brand span:not(.admin-brand-icon) { color: #7a8190; font-size: .72rem; }
+    .admin-user { padding: 7px 10px; color: #4f46c7; background: #f0eeff; border-radius: 8px; font-size: .78rem; font-weight: 750; }
+    .admin-content { width: min(1440px, 100%); margin: 0 auto; padding: 24px; }
+    .admin-session-expired { padding: 60px; display: flex; justify-content: center; gap: 9px; color: #747b89; }
+    @@media (max-width: 640px) {
+        .admin-topbar { padding: 10px 14px; align-items: flex-start; flex-direction: column; }
+        .admin-actions { width: 100%; justify-content: space-between; }
+        .admin-content { padding: 14px; }
+    }
+</style>
+
+@code {
+    protected override void OnInitialized()
+    {
+        if (!AdminSession.IsAuthenticated)
+            NavigationManager.NavigateTo("/system-admin/login");
+    }
+
+    private async Task LogoutAsync()
+    {
+        await AdminAuthService.LogoutAsync();
+        NavigationManager.NavigateTo("/system-admin/login");
+    }
+}

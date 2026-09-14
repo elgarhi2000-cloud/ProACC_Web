@@ -1,0 +1,306 @@
+@inject ReportDesignService Designs
+@inject ISessionService PrintSession
+@page "/accounting/reports/general-journal"
+@layout BlazorApp1.Components.Layout.AccountingLayout
+@using BlazorApp1.Services
+@inject IAccountingDataService AccountingDataService
+@inject ISessionService SessionService
+@inject IJSRuntime JS
+
+<PageTitle>اليومية العامة - النظام المحاسبي</PageTitle>
+
+<div class="page-content" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-4">
+        <h3><i class="bi bi-journal-bookmark me-2"></i>اليومية العامة</h3>
+        <div class="general-journal-heading-actions">
+            <button type="button" class="btn btn-outline-danger btn-sm" @onclick="ExportPdfAsync" disabled="@(isLoading || filteredRows.Count == 0)"><i class="bi bi-file-earmark-pdf me-1"></i>تصدير PDF</button>
+            <button type="button" class="btn btn-outline-success btn-sm" @onclick="ExportExcelAsync" disabled="@(isLoading || filteredRows.Count == 0)"><i class="bi bi-file-earmark-excel me-1"></i>تصدير Excel</button>
+            <span class="badge bg-primary">@filteredRows.Count سطر</span>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-danger" role="alert">@errorMessage</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(statusMessage))
+    {
+        <div class="alert alert-success">@statusMessage</div>
+    }
+
+    <section class="card border-0 shadow-sm general-journal-filter-card">
+        <div class="card-body">
+            <div class="general-journal-filter-grid">
+                <div class="general-journal-filter-field">
+                    <label for="journal-from-date">من تاريخ</label>
+                    <input id="journal-from-date" class="form-control" type="date"
+                           value="@DateInput(fromDate)" @onchange="OnFromDateChanged"
+                           min="@DateInput(periodStart)" max="@DateInput(periodEnd)" />
+                </div>
+                <div class="general-journal-filter-field">
+                    <label for="journal-to-date">إلى تاريخ</label>
+                    <input id="journal-to-date" class="form-control" type="date"
+                           value="@DateInput(toDate)" @onchange="OnToDateChanged"
+                           min="@DateInput(periodStart)" max="@DateInput(periodEnd)" />
+                </div>
+                <button class="btn btn-primary" type="button" @onclick="LoadRowsAsync" disabled="@isLoading">
+                    <i class="bi bi-funnel me-1"></i>عرض الفترة
+                </button>
+                <button class="btn btn-outline-secondary" type="button" @onclick="ResetDateRangeAsync" disabled="@isLoading">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>إعادة تعيين
+                </button>
+                @if (periodStart.HasValue && periodEnd.HasValue)
+                {
+                    <small class="general-journal-filter-note">
+                        حدود الفترة المالية: @periodStart.Value.ToString("yyyy/MM/dd") - @periodEnd.Value.ToString("yyyy/MM/dd")
+                    </small>
+                }
+            </div>
+        </div>
+    </section>
+
+    @if (isLoading)
+    {
+        <div class="alert alert-info">جاري تحميل سجل اليومية العامة...</div>
+    }
+    else
+    {
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <div class="section-search-bar mb-3">
+                    <input aria-label="ابحث برقم القيد، الحساب أو الوصف" type="search" class="form-control section-search-input" value="@searchText" @oninput="OnSearchInput" placeholder="ابحث برقم القيد، الحساب أو الوصف" />
+                    <button class="btn section-search-btn" @onclick="ApplySearch"><i class="bi bi-search me-1"></i>بحث</button>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle general-journal-table">
+                        <thead>
+                        <tr>
+                            <th class="sortable-column" aria-sort="@SortAria("TransId")" @onclick="@(() => SortBy("TransId"))"><button type="button" class="column-sort-button">رقم الحركة<i class="bi @SortIcon("TransId")"></i></button></th>
+                            <th class="sortable-column" aria-sort="@SortAria("GLID")" @onclick="@(() => SortBy("GLID"))"><button type="button" class="column-sort-button">رقم القيد<i class="bi @SortIcon("GLID")"></i></button></th>
+                            <th class="sortable-column" aria-sort="@SortAria("SerialNo")" @onclick="@(() => SortBy("SerialNo"))"><button type="button" class="column-sort-button">تسلسل القيد<i class="bi @SortIcon("SerialNo")"></i></button></th>
+                            <th class="sortable-column" aria-sort="@SortAria("GLDate")" @onclick="@(() => SortBy("GLDate"))"><button type="button" class="column-sort-button">التاريخ<i class="bi @SortIcon("GLDate")"></i></button></th>
+                            <th class="sortable-column" aria-sort="@SortAria("AccountName")" @onclick="@(() => SortBy("AccountName"))"><button type="button" class="column-sort-button">الحساب<i class="bi @SortIcon("AccountName")"></i></button></th>
+                            <th class="sortable-column" aria-sort="@SortAria("Description")" @onclick="@(() => SortBy("Description"))"><button type="button" class="column-sort-button">الوصف<i class="bi @SortIcon("Description")"></i></button></th>
+                            <th class="sortable-column" aria-sort="@SortAria("Debit")" @onclick="@(() => SortBy("Debit"))"><button type="button" class="column-sort-button">مدين<i class="bi @SortIcon("Debit")"></i></button></th>
+                            <th class="sortable-column" aria-sort="@SortAria("Credit")" @onclick="@(() => SortBy("Credit"))"><button type="button" class="column-sort-button">دائن<i class="bi @SortIcon("Credit")"></i></button></th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        @if (filteredRows.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="8" class="text-center text-muted py-4">لا توجد حركات خلال الفترة المحددة.</td>
+                            </tr>
+                        }
+                        else foreach (var row in filteredRows)
+                        {
+                            <tr>
+                                <td>@row.TransId</td>
+                                <td>#@(row.GLID?.ToString() ?? "-")</td>
+                                <td>@(row.SerialNo?.ToString() ?? "-")</td>
+                                <td>@(row.GLDate?.ToString("yyyy/MM/dd") ?? "-")</td>
+                                <td>@row.AccountName (@(row.AccountId?.ToString() ?? "-"))</td>
+                                <td>@row.Description</td>
+                                <td class="text-success fw-semibold">@FormatCurrency(row.Debit)</td>
+                                <td class="text-danger fw-semibold">@FormatCurrency(row.Credit)</td>
+                            </tr>
+                        }
+                        </tbody>
+                        <tfoot>
+                        <tr class="table-light fw-bold">
+                            <td colspan="6" class="text-end">الإجمالي</td>
+                            <td class="text-success">@FormatCurrency(filteredRows.Sum(x => x.Debit))</td>
+                            <td class="text-danger">@FormatCurrency(filteredRows.Sum(x => x.Credit))</td>
+                        </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<GeneralJournalLineVm> rows = new();
+    private List<GeneralJournalLineVm> filteredRows = new();
+    private bool isLoading = true;
+    private string? errorMessage;
+    private string? statusMessage;
+    private string searchText = string.Empty;
+    private string sortColumn = "GLDate";
+    private bool sortDescending = true;
+    private SettingsDataVm settings = new();
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private DateTime? periodStart;
+    private DateTime? periodEnd;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var periods = await AccountingDataService.GetFinancialPeriodsAsync();
+            settings = await AccountingDataService.GetSettingsDataAsync();
+            var currentPeriod = periods.FirstOrDefault(x => x.PeriodId == SessionService.SelectedPeriodId);
+            periodStart = currentPeriod?.StartDate?.Date;
+            periodEnd = currentPeriod?.EndDate?.Date;
+            fromDate = periodStart;
+            toDate = periodEnd;
+            await LoadRowsAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex);
+            errorMessage = "تعذر تحميل اليومية العامة؛ حاول مرة أخرى أو راجع مسؤول النظام.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadRowsAsync()
+    {
+        if (fromDate.HasValue && toDate.HasValue && fromDate.Value.Date > toDate.Value.Date)
+        {
+            errorMessage = "يجب أن يكون تاريخ البداية سابقًا لتاريخ النهاية أو مساويًا له.";
+            return;
+        }
+
+        errorMessage = null;
+        statusMessage = null;
+        isLoading = true;
+        try
+        {
+            rows = (await AccountingDataService.GetGeneralJournalAsync(0, fromDate, toDate)).ToList();
+            ApplySearch();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex);
+            errorMessage = "تعذر تحميل اليومية العامة؛ حاول مرة أخرى أو راجع مسؤول النظام.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ResetDateRangeAsync()
+    {
+        fromDate = periodStart;
+        toDate = periodEnd;
+        await LoadRowsAsync();
+    }
+
+    private void OnFromDateChanged(ChangeEventArgs e) =>
+        fromDate = DateTime.TryParse(e.Value?.ToString(), out var date) ? date.Date : null;
+
+    private void OnToDateChanged(ChangeEventArgs e) =>
+        toDate = DateTime.TryParse(e.Value?.ToString(), out var date) ? date.Date : null;
+
+    private void ApplySearch()
+    {
+        if (string.IsNullOrWhiteSpace(searchText))
+        {
+            filteredRows = SortRows(rows).ToList();
+            return;
+        }
+
+        var term = searchText.Trim();
+        var matchingRows = rows.Where(x =>
+            x.TransId.ToString().Contains(term, StringComparison.OrdinalIgnoreCase)
+            || (x.GLID?.ToString().Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
+            || (x.AccountId?.ToString().Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
+            || (!string.IsNullOrWhiteSpace(x.AccountName) && x.AccountName.Contains(term, StringComparison.OrdinalIgnoreCase))
+            || (!string.IsNullOrWhiteSpace(x.Description) && x.Description.Contains(term, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        filteredRows = SortRows(matchingRows).ToList();
+    }
+
+    private void SortBy(string column)
+    {
+        if (sortColumn == column) sortDescending = !sortDescending;
+        else { sortColumn = column; sortDescending = false; }
+        ApplySearch();
+    }
+
+    private IEnumerable<GeneralJournalLineVm> SortRows(IEnumerable<GeneralJournalLineVm> source) => (sortColumn, sortDescending) switch
+    {
+        ("TransId", false) => source.OrderBy(x => x.TransId),
+        ("TransId", true) => source.OrderByDescending(x => x.TransId),
+        ("GLID", false) => source.OrderBy(x => x.GLID),
+        ("GLID", true) => source.OrderByDescending(x => x.GLID),
+        ("SerialNo", false) => source.OrderBy(x => x.SerialNo),
+        ("SerialNo", true) => source.OrderByDescending(x => x.SerialNo),
+        ("GLDate", false) => source.OrderBy(x => x.GLDate).ThenBy(x => x.GLID).ThenBy(x => x.TransId),
+        ("GLDate", true) => source.OrderByDescending(x => x.GLDate).ThenByDescending(x => x.GLID).ThenByDescending(x => x.TransId),
+        ("AccountName", false) => source.OrderBy(x => x.AccountName).ThenBy(x => x.AccountId),
+        ("AccountName", true) => source.OrderByDescending(x => x.AccountName).ThenByDescending(x => x.AccountId),
+        ("Description", false) => source.OrderBy(x => x.Description),
+        ("Description", true) => source.OrderByDescending(x => x.Description),
+        ("Debit", false) => source.OrderBy(x => x.Debit),
+        ("Debit", true) => source.OrderByDescending(x => x.Debit),
+        ("Credit", false) => source.OrderBy(x => x.Credit),
+        ("Credit", true) => source.OrderByDescending(x => x.Credit),
+        _ => source.OrderByDescending(x => x.GLDate).ThenByDescending(x => x.GLID).ThenByDescending(x => x.TransId)
+    };
+
+    private string SortIcon(string column) => sortColumn == column
+        ? sortDescending ? "bi-sort-down" : "bi-sort-up"
+        : "bi-arrow-down-up";
+
+    private string SortAria(string column) => sortColumn == column
+        ? sortDescending ? "descending" : "ascending"
+        : "none";
+
+    private async Task ExportPdfAsync()
+    {
+        if (filteredRows.Count == 0) return;
+        errorMessage = null;
+        statusMessage = null;
+        try { var printReport = BuildExportData(); printReport.Design = await Designs.ForPrintAsync("general-journal"); printReport.CompanyLogo = settings.CompanyLogo; printReport.PrintedBy = PrintSession.CurrentUsername; await JS.InvokeVoidAsync("generalJournalExport.print", printReport); }
+        catch (Exception ex) { System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex); errorMessage = "تعذر تصدير اليومية العامة إلى PDF؛ حاول مرة أخرى أو راجع مسؤول النظام."; }
+    }
+
+    private async Task ExportExcelAsync()
+    {
+        if (filteredRows.Count == 0) return;
+        errorMessage = null;
+        statusMessage = null;
+        try
+        {
+            var exportData = BuildExportData();
+            var bytes = GeneralJournalExcelExporter.Create(exportData);
+            await JS.InvokeVoidAsync("generalJournalExport.downloadBase64",
+                $"اليومية_العامة_{fromDate:yyyyMMdd}_{toDate:yyyyMMdd}.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                Convert.ToBase64String(bytes));
+            statusMessage = "تم تجهيز ملف Excel بنجاح.";
+        }
+        catch (Exception ex) { System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex); errorMessage = "تعذر تصدير اليومية العامة إلى Excel؛ حاول مرة أخرى أو راجع مسؤول النظام."; }
+    }
+
+    private GeneralJournalExportVm BuildExportData() => new()
+    {
+        CompanyName = string.IsNullOrWhiteSpace(settings.CompanyName) ? "المنشأة" : settings.CompanyName,
+        CompanyAddress = settings.CompanyAddress,
+        CompanyPhone = settings.CompanyPhone,
+        CommercialRecord = settings.CommercialRecord,
+        TaxNumber = settings.TaxNumber,
+        PeriodName = settings.ActivePeriodName,
+        FromDate = fromDate,
+        ToDate = toDate,
+        Rows = filteredRows.ToList()
+    };
+
+    private void OnSearchInput(ChangeEventArgs e)
+    {
+        searchText = e.Value?.ToString() ?? string.Empty;
+        ApplySearch();
+    }
+
+    private static string FormatCurrency(decimal value) => value.ToString("N2");
+    private static string DateInput(DateTime? value) => value?.ToString("yyyy-MM-dd") ?? string.Empty;
+}

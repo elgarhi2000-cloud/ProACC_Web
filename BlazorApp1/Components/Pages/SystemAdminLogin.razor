@@ -1,0 +1,107 @@
+﻿@page "/system-admin/login"
+@layout BlazorApp1.Components.Layout.EmptyLayout
+@using BlazorApp1.Services
+@inject ISystemAdminAuthService AdminAuthService
+@inject ISystemAdminSession AdminSession
+@inject NavigationManager NavigationManager
+
+<PageTitle>دخول مدير النظام - ProACC</PageTitle>
+
+<div class="admin-login-page" dir="rtl">
+    <section class="admin-login-card">
+        <div class="admin-login-icon"><i class="bi bi-shield-lock-fill"></i></div>
+        <h1>إدارة النظام</h1>
+        <p>هذه المنطقة مستقلة عن حسابات المنشآت ومخصصة لمدير النظام فقط.</p>
+
+        <form @onsubmit="LoginAsync" @onsubmit:preventDefault="true">
+            <div class="mb-3">
+                <label class="form-label" for="adminUserName">حساب مدير النظام</label>
+                <input id="adminUserName" class="form-control form-control-lg" autocomplete="username"
+                       @bind="userName" disabled="@isBusy" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="adminPassword">كلمة المرور</label>
+                <input id="adminPassword" class="form-control form-control-lg" type="password" autocomplete="current-password"
+                       @bind="password" disabled="@isBusy" />
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(message))
+            {
+                <div class="alert alert-danger" role="alert">@message</div>
+            }
+
+            <button class="btn btn-primary btn-lg w-100" type="submit" disabled="@isBusy">
+                @if (isBusy) { <span class="spinner-border spinner-border-sm"></span> }
+                else { <i class="bi bi-box-arrow-in-right"></i> }
+                دخول منطقة الإدارة
+            </button>
+        </form>
+
+        <div class="admin-login-note"><i class="bi bi-info-circle"></i> لا يمنح تسجيل الدخول إلى أي منشأة صلاحية الوصول إلى هذه المنطقة.</div>
+    </section>
+</div>
+
+<style>
+    .admin-login-page { min-height: 100vh; padding: 20px; display: grid; place-items: center; background: radial-gradient(circle at 20% 15%, rgba(67,56,202,.12), transparent 30%), #eef1f5; }
+    .admin-login-card { width: min(440px, 100%); padding: 34px; background: #fff; border: 1px solid #dde2e9; border-radius: 16px; box-shadow: 0 22px 60px rgba(16,24,40,.12); }
+    .admin-login-icon { width: 62px; height: 62px; margin: 0 auto 15px; display: grid; place-items: center; color: #fff; background: #4338ca; border-radius: 16px; font-size: 1.55rem; }
+    .admin-login-card h1 { margin: 0; text-align: center; font-size: 1.45rem; font-weight: 850; }
+    .admin-login-card > p { margin: 7px 0 24px; color: #747b89; text-align: center; font-size: .82rem; line-height: 1.7; }
+    .admin-login-card .form-label { font-size: .82rem; font-weight: 750; }
+    .admin-login-card .form-control { border-color: #d9dde5; border-radius: 9px; }
+    .admin-login-card .btn-primary { background: #4338ca; border-color: #4338ca; }
+    .admin-login-note { margin-top: 18px; padding: 11px; display: flex; align-items: flex-start; gap: 7px; color: #646c79; background: #f6f7f9; border-radius: 8px; font-size: .72rem; }
+</style>
+
+@code {
+    private string userName = "developer";
+    private string password = string.Empty;
+    private string message = string.Empty;
+    private bool isBusy;
+    private int failedAttempts;
+    private DateTimeOffset? lockedUntil;
+
+    protected override void OnInitialized()
+    {
+        if (AdminSession.IsAuthenticated) NavigationManager.NavigateTo("/system-admin");
+    }
+
+    private async Task LoginAsync()
+    {
+        if (isBusy) return;
+        if (lockedUntil > DateTimeOffset.Now)
+        {
+            message = "تم إيقاف المحاولات مؤقتًا. حاول مرة أخرى بعد قليل.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(userName) || string.IsNullOrWhiteSpace(password))
+        {
+            message = "أدخل حساب مدير النظام وكلمة المرور.";
+            return;
+        }
+
+        isBusy = true;
+        message = string.Empty;
+        try
+        {
+            var result = await AdminAuthService.LoginAsync(userName, password);
+            if (result.Success)
+            {
+                password = string.Empty;
+                NavigationManager.NavigateTo("/system-admin");
+                return;
+            }
+
+            failedAttempts++;
+            message = result.Message;
+            if (failedAttempts >= 5)
+            {
+                failedAttempts = 0;
+                lockedUntil = DateTimeOffset.Now.AddMinutes(1);
+                message = "تم إيقاف المحاولات لمدة دقيقة.";
+            }
+        }
+        finally { isBusy = false; }
+    }
+}

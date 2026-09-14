@@ -1,0 +1,57 @@
+@using BlazorApp1.Services
+@inject ISessionService SessionService
+@inject IUserAccessService Access
+@inject NavigationManager NavigationManager
+@implements IDisposable
+
+@if (canRender)
+{
+    @ChildContent
+}
+else if (checking)
+{
+    <p class="text-muted p-4" role="status" dir="rtl">جاري التحقق من صلاحية الدخول…</p>
+}
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    private bool canRender, checking;
+    private int checkVersion;
+    protected override void OnInitialized() => SessionService.OnChange += HandleAuthStateChanged;
+    protected override Task OnParametersSetAsync() => CheckAuthenticationAsync();
+    private async Task CheckAuthenticationAsync()
+    {
+        var version = ++checkVersion;
+        canRender = false;
+        var relative = NavigationManager.ToBaseRelativePath(NavigationManager.Uri);
+        var path = SectionAccess.PathOnly(relative);
+        if (path == "system-admin" || path.StartsWith("system-admin/")) { canRender = true; return; }
+        if (!SessionService.IsAuthenticated)
+        {
+            canRender = path == "login";
+            if (!canRender) NavigationManager.NavigateTo("/login", replace: true);
+            return;
+        }
+        checking = true;
+        try
+        {
+            var allowed = await Access.CanOpenAsync(relative);
+            if (version != checkVersion) return;
+            if (path is "login" or "") NavigationManager.NavigateTo(SectionAccess.Landing(Access.Has), replace: true);
+            else if (allowed) canRender = true;
+            else NavigationManager.NavigateTo("/access-denied", replace: true);
+        }
+        catch
+        {
+            if (version == checkVersion)
+            {
+                // A failed permission lookup must never render the requested component.
+                if (path == "access-denied") canRender = true;
+                else NavigationManager.NavigateTo("/access-denied", replace: true);
+            }
+        }
+        finally { if (version == checkVersion) checking = false; }
+    }
+    private void HandleAuthStateChanged() => _ = InvokeAsync(async () => { await CheckAuthenticationAsync(); StateHasChanged(); });
+    public void Dispose() { checkVersion++; SessionService.OnChange -= HandleAuthStateChanged; }
+}

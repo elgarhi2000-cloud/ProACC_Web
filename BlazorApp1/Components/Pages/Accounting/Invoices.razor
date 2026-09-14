@@ -1,0 +1,12 @@
+@page "/accounting/invoices"
+@layout BlazorApp1.Components.Layout.AccountingLayout
+@using BlazorApp1.Components.Shared
+
+<PageTitle>فواتير المبيعات - النظام المحاسبي</PageTitle>
+
+<SourceTransactionsView Title="فواتير المبيعات"
+                        DetailsTitle="تفاصيل حركات فواتير المبيعات"
+                        SourceId="5"
+                        CreateButtonLabel="إضافة فاتورة مبيعات"
+                        ReturnUrl="/accounting/invoices"
+                        Icon="bi-file-earmark-text" />

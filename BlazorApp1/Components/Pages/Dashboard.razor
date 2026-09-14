@@ -1,0 +1,1307 @@
+@page "/dashboard"
+@layout BlazorApp1.Components.Layout.AccountingLayout
+@using BlazorApp1.Services
+@using System.Globalization
+@inject ISessionService SessionService
+@inject IAccountingDataService AccountingDataService
+
+<PageTitle>الرئيسية - النظام المحاسبي</PageTitle>
+
+<div class="dashboard" dir="rtl">
+    <div class="welcome-section mb-4 dashboard-hero">
+        <div class="hero-copy">
+            <div class="hero-kicker"><span></span> ملخص الأداء المالي</div>
+            <h2 class="hero-title">مرحباً، @SessionService.CurrentUsername</h2>
+            <p class="hero-subtitle">لوحة مؤشرات سريعة لأهم النتائج المالية</p>
+        </div>
+        <div class="hero-minimal-art" aria-hidden="true">
+            <span class="hero-art-grid"></span>
+        </div>
+        <div class="hero-context-wrap">
+            <div class="hero-date" aria-label="تاريخ اليوم">
+                <div class="hero-date-heading">
+                    <i class="bi bi-calendar2-week" aria-hidden="true"></i>
+                    <span>اليوم <strong>@Today.ToString("dddd", ArabicDateCulture)</strong></span>
+                    <span class="hero-date-dot" aria-hidden="true"></span>
+                </div>
+                <time class="hero-date-gregorian" datetime="@Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)">@Today.ToString("dd MMMM yyyy", ArabicDateCulture) <small>م</small></time>
+                <div class="hero-date-hijri"><i class="bi bi-moon-stars" aria-hidden="true"></i> @Today.ToString("dd MMMM yyyy", HijriDateCulture) هـ</div>
+            </div>
+            <div class="hero-context" aria-label="بيانات المنشأة والفترة المالية">
+                <div class="hero-context-item">
+                    <i class="bi bi-building"></i>
+                    <div>
+                        <span>اسم المنشأة</span>
+                        <strong class="hero-company-name" title="@GetCompanyName()">@GetCompanyName()</strong>
+                    </div>
+                </div>
+                <div class="hero-context-item">
+                    <i class="bi bi-calendar-range"></i>
+                    <div>
+                        <span>الفترة المالية</span>
+                        <strong>@GetPeriodName()</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-danger" role="alert">@errorMessage</div>
+    }
+    else if (isLoading)
+    {
+        <div class="alert alert-info">جاري تحميل البيانات...</div>
+    }
+    else if (data is not null)
+    {
+        <div class="financial-kpi-grid mb-4">
+            @foreach (var item in GetFinancialKpis())
+            {
+                <article class="financial-kpi-card" style="@GetKpiStyle(item)">
+                    <div class="kpi-topline"></div>
+                    <div class="financial-kpi-head">
+                        <span class="financial-kpi-icon" aria-hidden="true"><i class="bi @item.Icon"></i></span>
+                        <span>@item.Title</span>
+                    </div>
+                    <div class="financial-kpi-amount"><strong>@FormatCompactCurrency(item.Value)</strong><span>ر.س</span></div>
+                    <div class="financial-kpi-meta">
+                        <span>@item.Detail</span>
+                        <strong><i class="bi @item.TrendIcon"></i> @item.Ratio</strong>
+                    </div>
+                    <div class="financial-kpi-progress"><span></span></div>
+                    <small>@item.Footnote</small>
+                </article>
+            }
+        </div>
+
+        <div class="documents-strip mb-4" aria-label="حركة القيود والمستندات">
+            <a class="document-summary-item document-receipts" href="/accounting/receipts"><div class="document-summary-icon"><i class="bi bi-receipt"></i></div><div><strong>@data.ReceiptsCount</strong><span>سندات القبض</span></div></a>
+            <a class="document-summary-item document-payments" href="/accounting/payments"><div class="document-summary-icon"><i class="bi bi-wallet2"></i></div><div><strong>@data.PaymentsCount</strong><span>سندات الصرف</span></div></a>
+            <a class="document-summary-item document-sales" href="/accounting/invoices"><div class="document-summary-icon"><i class="bi bi-file-earmark-text"></i></div><div><strong>@data.SalesInvoicesCount</strong><span>فواتير المبيعات</span></div></a>
+            <a class="document-summary-item document-purchases" href="/accounting/purchase-invoices"><div class="document-summary-icon"><i class="bi bi-file-earmark-arrow-down"></i></div><div><strong>@data.PurchaseInvoicesCount</strong><span>فواتير المشتريات</span></div></a>
+            <a class="document-summary-item document-journals" href="/accounting/journal-entries"><div class="document-summary-icon"><i class="bi bi-journal-text"></i></div><div><strong>@data.JournalEntriesCount</strong><span>قيود اليومية</span></div></a>
+        </div>
+
+        <div class="analytics-grid mb-4">
+            <section class="card dashboard-analytics-card performance-card">
+                <div class="analytics-card-header">
+                    <div><h5><i class="bi bi-bar-chart-line-fill"></i> مقارنة الأداء المالي</h5><p>مقارنة حركة المدين والدائن وصافي الرصيد للحسابات الرئيسية</p></div>
+                </div>
+                <div class="chart-legend"><span class="legend-debit">المدين</span><span class="legend-credit">الدائن</span><span class="legend-net">صافي الرصيد</span></div>
+                @if (level0BalanceCards.Count == 0)
+                {
+                    <div class="balance-empty">لا توجد بيانات مالية لعرضها.</div>
+                }
+                else
+                {
+                    <div class="comparison-chart" role="img" aria-label="مقارنة أرصدة الحسابات الرئيسية">
+                        @foreach (var item in GetComparisonBalances())
+                        {
+                            <div class="comparison-group" title="@item.Level0Name">
+                                <div class="comparison-bars">
+                                    <span class="comparison-bar debit" style="@GetComparisonBarStyle(item.Debit)" title="مدين: @FormatCurrency(item.Debit)"></span>
+                                    <span class="comparison-bar credit" style="@GetComparisonBarStyle(item.Credit)" title="دائن: @FormatCurrency(item.Credit)"></span>
+                                    <span class="comparison-bar net @(item.Net < 0 ? "negative" : null)" style="@GetComparisonBarStyle(item.Net)" title="الصافي: @FormatCurrency(item.Net)"></span>
+                                </div>
+                                <span class="comparison-label">@item.Level0Name</span>
+                            </div>
+                        }
+                    </div>
+                }
+            </section>
+
+            <section class="card dashboard-analytics-card">
+                <div class="analytics-card-header"><div><h5><i class="bi bi-speedometer2"></i> أهم المؤشرات القياسية</h5><p>قراءة سريعة لحالة النشاط المالي</p></div></div>
+                <div class="indicator-list">
+                    @foreach (var indicator in GetFinancialIndicators())
+                    {
+                        <div class="indicator-item"><span class="indicator-icon" style="--indicator:@indicator.Color"><i class="bi @indicator.Icon"></i></span><span>@indicator.Title</span><strong style="--indicator:@indicator.Color">@indicator.Value</strong></div>
+                    }
+                </div>
+            </section>
+        </div>
+
+        <div class="insights-grid mb-4">
+            <section class="card dashboard-analytics-card">
+                <div class="analytics-card-header"><div><h5><i class="bi bi-bullseye"></i> أرصدة الحسابات الرئيسية</h5><p>أعلى الحسابات حسب القيمة المطلقة لصافي الرصيد</p></div></div>
+                @if (data.Level1Balances.Count == 0) { <div class="balance-empty">لا توجد حسابات في المستوى الأول.</div> }
+                else
+                {
+                    <div class="level1-bar-chart" role="img" aria-label="أرصدة الحسابات الرئيسية">
+                        @foreach (var item in data.Level1Balances.Take(6))
+                        {
+                            <div class="level1-bar-row" title="@($"{item.Level1Name}: {FormatCurrency(item.Net)}")">
+                                <div class="level1-bar-label"><span>@item.Level1Name</span><strong>@FormatCompactCurrency(item.Net) ر.س</strong></div>
+                                <div class="level1-bar-track"><div class="level1-bar @(item.Net >= 0 ? "is-positive" : "is-negative")" style="@GetLevel1BarStyle(item.Net)"></div></div>
+                            </div>
+                        }
+                    </div>
+                }
+            </section>
+            <section class="card dashboard-analytics-card distribution-card">
+                <div class="analytics-card-header"><div><h5><i class="bi bi-pie-chart-fill"></i> توزيع الأرصدة</h5><p>حسب الحسابات الرئيسية</p></div></div>
+                @if (level0BalanceCards.Count == 0 || level0BalanceCards.All(x => x.Net == 0m))
+                {
+                    <div class="balance-empty">لا توجد أرصدة غير صفرية لعرضها.</div>
+                }
+                else
+                {
+                    <div class="level0-pie-wrap" role="img" aria-label="توزيع صافي أرصدة الحسابات الرئيسية">
+                        <svg class="level0-pie" viewBox="0 0 240 240">
+                            @foreach (var slice in GetLevel0PieSlices())
+                            {
+                                <path class="level0-pie-slice" d="@slice.Path" fill="@slice.Color" tabindex="0"
+                                      @onmouseenter="() => ShowLevel0PieTooltip(slice)" @onmouseleave="HideLevel0PieTooltip"
+                                      @onfocus="() => ShowLevel0PieTooltip(slice)" @onblur="HideLevel0PieTooltip">
+                                    <title>@($"{slice.Name}: {FormatCurrency(slice.Value)}")</title>
+                                </path>
+                            }
+                            <circle cx="120" cy="120" r="68" fill="white"></circle>
+                            <text x="120" y="114" text-anchor="middle" class="donut-label">إجمالي الحركة</text>
+                            <text x="120" y="137" text-anchor="middle" class="donut-value">@FormatCompactNumber(GetDistributionTotal())</text>
+                        </svg>
+                        @if (!string.IsNullOrWhiteSpace(level0PieTooltip)) { <div class="level0-pie-tooltip">@level0PieTooltip</div> }
+                    </div>
+                    <div class="donut-legend">
+                        @foreach (var item in GetLevel0LegendItems())
+                        {
+                            <span><i style="background:@item.Color"></i>@item.Name <strong>@item.Percentage.ToString("0.#")%</strong></span>
+                        }
+                    </div>
+                }
+            </section>
+        </div>
+
+        <div class="row g-4 mb-4">
+            <div class="col-md-6">
+                <div class="card border-0 shadow-sm h-100 modern-card">
+                    <div class="card-header bg-transparent border-0 pt-3 pb-0">
+                        <h5 class="mb-0 dashboard-card-title"><span class="dashboard-title-icon title-accounts" aria-hidden="true"><i class="bi bi-diagram-3"></i></span>أرصدة الحسابات الرئيسية</h5>
+                    </div>
+                    <div class="card-body pt-3">
+                        @if (data.Level1Balances.Count == 0)
+                        {
+                            <div class="balance-empty">لا توجد حسابات في جدول Level1.</div>
+                        }
+                        else
+                        {
+                            <div class="table-responsive balance-table-wrap">
+                                <table class="table table-hover align-middle balance-table mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>الحساب</th>
+                                        <th>مدين</th>
+                                        <th>دائن</th>
+                                        <th>الصافي</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody>
+                                    @foreach (var item in data.Level1Balances)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <span class="balance-code">@item.Level1Id</span>
+                                                <span class="balance-name">@item.Level1Name</span>
+                                            </td>
+                                            <td class="text-success text-nowrap">@FormatCurrency(item.Debit)</td>
+                                            <td class="text-danger text-nowrap">@FormatCurrency(item.Credit)</td>
+                                            <td class="fw-bold text-nowrap @(item.Net >= 0 ? "text-primary" : "text-danger")">@FormatCurrency(item.Net)</td>
+                                        </tr>
+                                    }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card border-0 shadow-sm h-100 modern-card">
+                    <div class="card-header bg-transparent border-0 pt-3 pb-0">
+                        <h5 class="mb-0 dashboard-card-title"><span class="dashboard-title-icon title-important" aria-hidden="true"><i class="bi bi-star-fill"></i></span>أرصدة الحسابات الهامة</h5>
+                    </div>
+                    <div class="card-body pt-3">
+                        @if (data.ChartAccountBalances.Count == 0)
+                        {
+                            <div class="balance-empty">لا توجد أرصدة حسابات هامة لعرضها.</div>
+                        }
+                        else
+                        {
+                            <div class="table-responsive balance-table-wrap">
+                                <table class="table table-hover align-middle balance-table mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>الحساب</th>
+                                        <th>مدين</th>
+                                        <th>دائن</th>
+                                        <th>الصافي</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody>
+                                    @foreach (var item in data.ChartAccountBalances)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <span class="balance-code">@item.AccountId</span>
+                                                <span class="balance-name">@item.AccountName</span>
+                                            </td>
+                                            <td class="text-success text-nowrap">@FormatCurrency(item.Debit)</td>
+                                            <td class="text-danger text-nowrap">@FormatCurrency(item.Credit)</td>
+                                            <td class="fw-bold text-nowrap @(item.Net >= 0 ? "text-primary" : "text-danger")">@FormatCurrency(item.Net)</td>
+                                        </tr>
+                                    }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card border-0 shadow-sm modern-card">
+            <div class="card-header bg-transparent border-0 pt-3 pb-0">
+                <h5 class="mb-0 dashboard-card-title"><span class="dashboard-title-icon title-entries" aria-hidden="true"><i class="bi bi-journal-text"></i></span>آخر القيود المسجلة</h5>
+            </div>
+            <div class="card-body">
+                <div class="section-search-bar">
+                    <input aria-label="ابحث في العمليات الأخيرة" type="search" class="form-control section-search-input" value="@searchText" @oninput="OnSearchInput" placeholder="ابحث في العمليات الأخيرة" />
+                    <button class="btn section-search-btn" @onclick="ApplySearch"><i class="bi bi-search me-1"></i>بحث</button>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead>
+                        <tr>
+                            <th>رقم القيد</th>
+                            <th>التاريخ</th>
+                            <th>المصدر</th>
+                            <th>الوصف</th>
+                            <th>المدين</th>
+                            <th>الدائن</th>
+                            <th class="text-nowrap">المستخدم</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        @foreach (var item in filteredEntries)
+                        {
+                            <tr>
+                                <td>#@item.GLID</td>
+                                <td>@(item.Date?.ToString("yyyy/MM/dd") ?? "-")</td>
+                                <td>@item.SourceName</td>
+                                <td>@item.Description</td>
+                                <td class="text-success">@FormatCurrency(item.Debit)</td>
+                                <td class="text-danger">@FormatCurrency(item.Credit)</td>
+                                <td class="text-nowrap"><bdi>@(string.IsNullOrWhiteSpace(item.Info) ? "-" : item.Info)</bdi></td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    }
+</div>
+
+<style>
+    .dashboard-hero {
+        min-height: 156px;
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 28px;
+        overflow: hidden;
+        background: linear-gradient(135deg, #1f3a8a 0%, #3b82f6 100%);
+        color: #fff;
+        border-radius: 18px;
+        padding: 24px 30px;
+    }
+
+    .dashboard-hero::before {
+        content: '';
+        width: 150px;
+        height: 150px;
+        position: absolute;
+        right: -68px;
+        bottom: -96px;
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, .09);
+        border-radius: 50%;
+    }
+
+    .dashboard-hero::after {
+        width: 190px;
+        height: 190px;
+        left: -74px;
+        top: -108px;
+        background: transparent;
+        border: 24px solid rgba(255, 255, 255, .045);
+    }
+
+    .hero-copy,
+    .hero-context-wrap {
+        position: relative;
+        z-index: 2;
+    }
+
+    .hero-copy {
+        min-width: 280px;
+    }
+
+    .hero-kicker {
+        margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        color: rgba(255, 255, 255, .72);
+        font-size: .72rem;
+        font-weight: 700;
+    }
+
+    .hero-kicker span {
+        width: 7px;
+        height: 7px;
+        display: block;
+        background: #8eeac8;
+        border: 2px solid rgba(255, 255, 255, .26);
+        border-radius: 50%;
+        box-shadow: 0 0 0 4px rgba(142, 234, 200, .1);
+    }
+
+    .hero-title {
+        font-size: 1.7rem;
+        font-weight: 800;
+        margin: 0;
+    }
+
+    .hero-subtitle {
+        margin: 6px 0 0;
+        color: rgba(255, 255, 255, .82) !important;
+        font-size: .94rem;
+    }
+
+    .hero-minimal-art {
+        width: auto;
+        height: auto;
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        opacity: .62;
+        pointer-events: none;
+    }
+
+    .hero-minimal-art::before,
+    .hero-minimal-art::after {
+        content: '';
+        position: absolute;
+        border-radius: 50%;
+    }
+
+    .hero-minimal-art::before {
+        width: 360px;
+        height: 360px;
+        left: 25%;
+        top: -275px;
+        border: 1px solid rgba(255, 255, 255, .075);
+    }
+
+    .hero-minimal-art::after {
+        width: 240px;
+        height: 240px;
+        right: 34%;
+        bottom: -205px;
+        border: 1px solid rgba(142, 234, 200, .065);
+    }
+
+    .hero-art-grid {
+        position: absolute;
+        inset: 10px 0;
+        opacity: .2;
+        background-image: radial-gradient(circle, rgba(255, 255, 255, .55) 1px, transparent 1.2px);
+        background-size: 18px 18px;
+        -webkit-mask-image: linear-gradient(90deg, transparent 3%, #000 18%, #000 82%, transparent 97%);
+        mask-image: linear-gradient(90deg, transparent 3%, #000 18%, #000 82%, transparent 97%);
+    }
+
+    .hero-context {
+        width: min(460px, 100%);
+        min-width: 0;
+        padding: 7px;
+        display: grid;
+        grid-template-columns: minmax(0, 1.8fr) minmax(130px, .7fr);
+        align-items: stretch;
+        gap: 0;
+        position: relative;
+        overflow: hidden;
+        background: linear-gradient(135deg, rgba(255, 255, 255, .13), rgba(255, 255, 255, .075));
+        border: 1px solid rgba(255, 255, 255, .23);
+        border-radius: 15px;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, .1), 0 10px 24px rgba(39, 28, 133, .11);
+        backdrop-filter: blur(9px);
+    }
+
+    .hero-context-wrap {
+        min-width: 0;
+        display: flex;
+        align-items: stretch;
+        gap: 10px;
+    }
+
+    .hero-context-item {
+        min-width: 0;
+        padding: 8px 11px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .hero-context-item i {
+        width: 36px;
+        height: 36px;
+        display: grid;
+        place-items: center;
+        flex: 0 0 36px;
+        color: #fff;
+        background: rgba(255, 255, 255, .12);
+        border: 1px solid rgba(255, 255, 255, .13);
+        border-radius: 10px;
+        font-size: .92rem;
+    }
+
+    .hero-context-item div {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        line-height: 1.25;
+    }
+
+    .hero-context-item span {
+        margin-bottom: 3px;
+        color: rgba(255, 255, 255, .66);
+        font-size: .67rem;
+        font-weight: 650;
+    }
+
+    .hero-context-item strong {
+        max-width: 100%;
+        overflow: hidden;
+        color: #fff;
+        font-size: .86rem;
+        font-weight: 800;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .kpi-card {
+        border-radius: 16px;
+        color: #fff;
+        min-height: 124px;
+    }
+
+    .kpi-primary { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+    .kpi-success { background: linear-gradient(135deg, #22c55e, #16a34a); }
+    .kpi-danger { background: linear-gradient(135deg, #ef4444, #dc2626); }
+    .kpi-warning { background: linear-gradient(135deg, #f59e0b, #d97706); }
+    .kpi-neutral { background: linear-gradient(135deg, #64748b, #475569); }
+
+    .kpi-card .kpi-value {
+        font-size: clamp(1.05rem, 1.9vw, 1.45rem);
+        font-weight: 800;
+        line-height: 1.25;
+        word-break: break-word;
+        overflow-wrap: anywhere;
+    }
+
+    .kpi-card .kpi-label {
+        color: rgba(255, 255, 255, .92);
+        font-weight: 700;
+        font-size: clamp(.76rem, 1.1vw, .92rem);
+        line-height: 1.3;
+        word-break: break-word;
+        overflow-wrap: anywhere;
+    }
+
+    .kpi-card i {
+        opacity: .95;
+        flex-shrink: 0;
+    }
+
+    .kpi-content-wrap {
+        min-width: 0;
+        flex: 1;
+        padding-left: 8px;
+    }
+
+    .kpi-grid-row {
+        align-items: stretch;
+    }
+
+    .journal-count-card,
+    .documents-summary-card {
+        min-height: 124px;
+        border-radius: 16px;
+    }
+
+    .documents-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        align-items: stretch;
+        gap: 10px;
+        padding: 12px;
+    }
+
+    .document-summary-item {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 10px;
+        border-radius: 12px;
+        background: #f8fafc;
+    }
+
+    .document-summary-item > div:last-child {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        line-height: 1.25;
+    }
+
+    .document-summary-item strong {
+        color: #0f172a;
+        font-size: 1.15rem;
+        font-weight: 800;
+    }
+
+    .document-summary-item span {
+        color: #64748b;
+        font-size: .78rem;
+        font-weight: 700;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .document-summary-icon {
+        width: 34px;
+        height: 34px;
+        display: grid;
+        place-items: center;
+        flex: 0 0 34px;
+        border-radius: 10px;
+        font-size: 1rem;
+    }
+
+    .document-receipts .document-summary-icon { color: #0f9f76; background: #e7f7f2; }
+    .document-payments .document-summary-icon { color: #e0445e; background: #fdecef; }
+    .document-sales .document-summary-icon { color: #5b4bdb; background: #efedff; }
+    .document-purchases .document-summary-icon { color: #d98a16; background: #fff5e6; }
+
+    .dashboard-section-heading {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: #334155;
+        font-size: .96rem;
+        font-weight: 800;
+    }
+
+    .dashboard-section-heading i {
+        color: #4f46e5;
+    }
+
+    .modern-card {
+        border-radius: 16px;
+    }
+
+    .level0-pie-wrap {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 360px;
+        padding: 4px;
+    }
+
+    .level0-pie {
+        width: min(100%, 355px);
+        height: auto;
+        overflow: visible;
+        padding: 5px;
+        border-radius: 50%;
+        filter: drop-shadow(0 10px 16px rgba(15, 23, 42, .16));
+    }
+
+    .level0-pie-slice {
+        cursor: help;
+        stroke: #fff;
+        stroke-width: 1.5px;
+        transform-box: fill-box;
+        transform-origin: center;
+        transition: filter .18s ease, opacity .18s ease, transform .18s ease;
+    }
+
+    .level0-pie:hover .level0-pie-slice:not(:hover) {
+        opacity: .72;
+    }
+
+    .level0-pie-slice:hover,
+    .level0-pie-slice:focus {
+        filter: brightness(1.08);
+        outline: none;
+        transform: scale(1.025);
+    }
+
+    .level0-pie-tooltip {
+        position: absolute;
+        left: 50%;
+        bottom: 8px;
+        z-index: 2;
+        direction: rtl;
+        padding: 8px 13px;
+        color: #fff;
+        background: rgba(15, 23, 42, .92);
+        border-radius: 9px;
+        box-shadow: 0 6px 16px rgba(15, 23, 42, .2);
+        font-size: .82rem;
+        font-weight: 700;
+        pointer-events: none;
+        transform: translateX(-50%);
+        white-space: nowrap;
+    }
+
+    .hero-context-item .hero-company-name {
+        font-size: clamp(.68rem, .78vw, .78rem);
+        text-overflow: clip;
+    }
+
+    .level1-bar-chart {
+        display: grid;
+        gap: 13px;
+        max-height: 275px;
+        padding-left: 4px;
+        overflow-y: auto;
+    }
+
+    .level1-bar-row {
+        display: grid;
+        gap: 6px;
+    }
+
+    .level1-bar-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        color: #334155;
+        font-size: .82rem;
+        font-weight: 700;
+    }
+
+    .level1-bar-label > span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .level1-bar-label strong {
+        direction: ltr;
+        white-space: nowrap;
+    }
+
+    .level1-bar-track {
+        height: 13px;
+        overflow: hidden;
+        background: #eef2f7;
+        border-radius: 999px;
+    }
+
+    .level1-bar {
+        width: var(--level1-bar-width);
+        min-width: 3px;
+        height: 100%;
+        border-radius: inherit;
+        transition: width .35s ease;
+    }
+
+    .level1-bar.is-positive {
+        background: linear-gradient(90deg, #4f46e5, #818cf8);
+    }
+
+    .level1-bar.is-negative {
+        background: linear-gradient(90deg, #ef4444, #fb7185);
+    }
+
+    .balance-table-wrap {
+        max-height: 340px;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+    }
+
+    .balance-table thead {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+    }
+
+    .balance-table th {
+        background: #f8fafc;
+        color: #475569;
+        font-size: .82rem;
+        white-space: nowrap;
+    }
+
+    .balance-table td {
+        font-size: .84rem;
+    }
+
+    .balance-code {
+        display: block;
+        color: #64748b;
+        font-size: .72rem;
+        direction: ltr;
+        text-align: right;
+    }
+
+    .balance-name {
+        display: block;
+        min-width: 130px;
+        color: #0f172a;
+        font-weight: 700;
+    }
+
+    .balance-empty {
+        min-height: 120px;
+        display: grid;
+        place-items: center;
+        color: #64748b;
+        text-align: center;
+    }
+
+    .quick-metrics {
+        display: grid;
+        gap: 10px;
+    }
+
+    .metric-item {
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 12px;
+        background: #f8fafc;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .metric-title {
+        color: #475569;
+        font-weight: 600;
+    }
+
+    .metric-value {
+        color: #0f172a;
+        font-size: 1.05rem;
+        font-weight: 800;
+    }
+
+    /* Reference-inspired financial dashboard */
+    .dashboard-hero {
+        min-height: 150px;
+        padding: 22px 30px;
+        color: #fff !important;
+        background: linear-gradient(120deg, #4f40c4 0%, #5b4bd1 48%, #6d5add 100%) !important;
+        border: 0 !important;
+        border-radius: 15px !important;
+        box-shadow: 0 10px 28px rgba(78, 63, 188, .18) !important;
+    }
+
+    .dashboard-hero::before, .dashboard-hero::after, .hero-minimal-art { display: block; }
+    .dashboard-hero .hero-title { color: #fff !important; font-size: 1.45rem !important; }
+    .dashboard-hero .hero-subtitle { color: rgba(255, 255, 255, .86) !important; }
+    .dashboard-hero .hero-kicker { color: rgba(255, 255, 255, .75); }
+    .dashboard-hero .hero-kicker span { background: #8eeac8; border-color: rgba(255, 255, 255, .26); box-shadow: 0 0 0 4px rgba(142, 234, 200, .1); }
+    .dashboard-hero .hero-context,
+    .dashboard-hero .hero-date {
+        min-width: 0;
+        overflow: hidden;
+        background: linear-gradient(135deg, rgba(255, 255, 255, .13), rgba(255, 255, 255, .075));
+        border: 1px solid rgba(255, 255, 255, .23);
+        border-radius: 15px !important;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, .1), 0 10px 24px rgba(39, 28, 133, .11);
+        backdrop-filter: blur(9px);
+    }
+    .dashboard-hero .hero-context-item i { color: #fff; background: rgba(255, 255, 255, .12); border-color: rgba(255, 255, 255, .13); }
+    .dashboard-hero .hero-context-item span { color: rgba(255, 255, 255, .68); }
+    .dashboard-hero .hero-context-item strong { color: #fff; }
+
+    .financial-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
+    .financial-kpi-card {
+        min-width: 0;
+        position: relative;
+        overflow: hidden;
+        padding: 20px 20px 18px;
+        background: #fff;
+        border: 1px solid #dce3ec;
+        border-radius: 15px;
+        box-shadow: 0 2px 5px rgba(24, 39, 75, .065);
+    }
+    .kpi-topline { height: 4px; position: absolute; inset: 0 0 auto; background: var(--accent); }
+    .financial-kpi-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #334158; font-size: .82rem; }
+    .financial-kpi-icon { width: 43px; height: 43px; display: grid; place-items: center; flex: 0 0 43px; color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, white); border-radius: 12px; font-size: 1.08rem; }
+    .financial-kpi-amount { margin: 12px 0 10px; display: flex; align-items: baseline; gap: 6px; direction: rtl; justify-content: flex-start; }
+    .financial-kpi-amount strong { color: #07152f; font-size: clamp(1.35rem, 2vw, 1.85rem); font-weight: 900; letter-spacing: -.5px; }
+    .financial-kpi-amount span { color: #708097; font-size: .72rem; }
+    .financial-kpi-meta { padding-top: 10px; display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid #e4e8ee; color: #48566d; font-size: .72rem; }
+    .financial-kpi-meta strong { color: var(--accent); white-space: nowrap; }
+    .financial-kpi-progress { height: 9px; margin: 11px 0 8px; overflow: hidden; background: #edf0f4; border-radius: 20px; }
+    .financial-kpi-progress span { width: min(var(--progress), 100%); height: 100%; display: block; background: var(--accent); border-radius: inherit; }
+    .financial-kpi-card > small { display: block; overflow: hidden; color: #78859a; font-size: .67rem; text-overflow: ellipsis; white-space: nowrap; }
+
+    .documents-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; padding: 10px; background: #fff; border: 1px solid #dce3ec; border-radius: 14px; box-shadow: 0 2px 5px rgba(24, 39, 75, .05); }
+    .documents-strip .document-summary-item { background: #f7f9fc; border: 1px solid #edf0f4; }
+    .document-journals .document-summary-icon { color: #56627a; background: #e9edf3; }
+
+    .analytics-grid { display: grid; grid-template-columns: minmax(0, 2.05fr) minmax(310px, 1fr); gap: 20px; }
+    .insights-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+    .dashboard-analytics-card { min-width: 0; padding: 20px 22px; background: #fff; border: 1px solid #dce3ec; border-radius: 15px; box-shadow: 0 2px 5px rgba(24, 39, 75, .06); }
+    .analytics-card-header { padding-bottom: 13px; border-bottom: 1px solid #dfe5ed; }
+    .analytics-card-header h5 { margin: 0; color: #0c1830; font-size: 1rem; font-weight: 850; }
+    .analytics-card-header h5 i { margin-left: 8px; color: #3864e3; }
+    .analytics-card-header p { margin: 6px 0 0; color: #718096; font-size: .74rem; }
+    .chart-legend { padding: 14px 0 2px; display: flex; justify-content: center; gap: 22px; color: #667389; font-size: .72rem; }
+    .chart-legend span::before { content: ''; width: 22px; height: 8px; display: inline-block; margin-left: 6px; border-radius: 2px; }
+    .legend-debit::before { background: #57b688; }
+    .legend-credit::before { background: #3964df; }
+    .legend-net::before { background: #8358e8; }
+
+    .comparison-chart { height: 300px; padding: 18px 18px 0; display: flex; align-items: stretch; justify-content: space-around; gap: 15px; direction: rtl; background: repeating-linear-gradient(to top, #e9edf2 0 1px, transparent 1px 54px); border-bottom: 1px solid #cfd6df; }
+    .comparison-group { min-width: 70px; max-width: 150px; flex: 1; display: grid; grid-template-rows: minmax(0, 1fr) 42px; gap: 8px; }
+    .comparison-bars { display: flex; align-items: flex-end; justify-content: center; gap: 7px; }
+    .comparison-bar { width: min(24%, 36px); min-height: 3px; height: var(--bar-height); display: block; border-radius: 8px 8px 0 0; transition: height .35s ease, filter .18s ease; }
+    .comparison-bar:hover { filter: brightness(1.08); }
+    .comparison-bar.debit { background: #57b688; }
+    .comparison-bar.credit { background: #3964df; }
+    .comparison-bar.net { background: #8358e8; }
+    .comparison-bar.net.negative { background: #e3534d; }
+    .comparison-label { align-self: start; overflow: hidden; color: #647188; text-align: center; font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
+
+    .distribution-card .level0-pie-wrap { min-height: 270px; padding: 12px 4px 0; }
+    .distribution-card .level0-pie { width: min(100%, 270px); filter: none; }
+    .donut-label { fill: #758197; font-size: 11px; }
+    .donut-value { fill: #101d35; font-size: 15px; font-weight: 800; }
+    .donut-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 14px; color: #68758b; font-size: .68rem; }
+    .donut-legend span { display: flex; align-items: center; gap: 5px; }
+    .donut-legend i { width: 9px; height: 9px; display: inline-block; border-radius: 2px; }
+    .donut-legend strong { color: #26344c; }
+
+    .insights-grid .level1-bar-chart { max-height: none; padding: 18px 2px 2px; gap: 16px; }
+    .insights-grid .level1-bar-label strong { color: #314158; font-size: .76rem; }
+    .insights-grid .level1-bar-track { height: 12px; }
+    .insights-grid .level1-bar.is-positive { background: linear-gradient(90deg, #75cfa5, #57b688); }
+    .indicator-list { padding-top: 12px; display: grid; gap: 10px; }
+    .indicator-item { min-height: 58px; padding: 11px 13px; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 10px; background: #f8fafc; border: 1px solid #dfe5ed; border-radius: 11px; color: #17243c; font-size: .78rem; }
+    .indicator-icon { width: 32px; height: 32px; display: grid; place-items: center; color: var(--indicator); background: color-mix(in srgb, var(--indicator) 10%, white); border-radius: 9px; }
+    .indicator-item strong { padding: 7px 9px; color: var(--indicator); background: color-mix(in srgb, var(--indicator) 10%, white); border-radius: 7px; font-size: .72rem; white-space: nowrap; }
+
+    @@media (max-width: 992px) {
+        .financial-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .analytics-grid, .insights-grid { grid-template-columns: 1fr; }
+        .documents-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .dashboard-hero {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .hero-context { min-width: 0; }
+
+        .hero-context-wrap { width: min(460px, 100%); }
+        .hero-minimal-art { opacity: .38; }
+    }
+
+    @@media (max-width: 768px) {
+        .dashboard-hero .hero-context { min-width: 0; }
+        .documents-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .comparison-chart { height: 270px; padding-inline: 4px; gap: 5px; overflow-x: auto; }
+        .comparison-group { min-width: 72px; }
+        .hero-minimal-art { opacity: .24; }
+        .hero-minimal-art::before { left: -120px; }
+        .hero-context { grid-template-columns: 1fr 1fr; }
+        .hero-context-item .hero-company-name { font-size: clamp(.62rem, 1.8vw, .8rem); }
+        .documents-summary-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .level0-pie-wrap { min-height: 310px; }
+    }
+
+    @@media (max-width: 420px) {
+        .financial-kpi-grid { grid-template-columns: 1fr; }
+        .documents-strip { grid-template-columns: 1fr; }
+        .dashboard-analytics-card { padding: 16px; }
+        .financial-kpi-card { padding: 18px; }
+        .indicator-item { grid-template-columns: 32px minmax(0, 1fr); }
+        .indicator-item strong { grid-column: 2; justify-self: start; }
+        .hero-context-wrap { flex-direction: column; }
+        .dashboard-hero { min-height: 0; padding: 20px; }
+        .hero-copy { min-width: 0; }
+        .hero-context { min-width: 0; grid-template-columns: 1fr; }
+        .documents-summary-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+    .hero-date {
+        flex: 0 0 auto;
+        min-width: 205px;
+        padding: 14px 18px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 9px;
+        color: #fff;
+    }
+    .hero-date-heading { display: flex; align-items: center; gap: 8px; font-size: .75rem; color: rgba(255,255,255,.8); }
+    .hero-date-heading strong { color: #fff; margin-inline-start: 4px; }
+    .hero-date-dot { width: 6px; height: 6px; border-radius: 50%; background: #8eeac8; margin-inline-start: auto; box-shadow: 0 0 0 4px rgba(142,234,200,.12); }
+    .hero-date-gregorian { font-size: 1.05rem; font-weight: 800; white-space: nowrap; }
+    .hero-date-gregorian small { font-size: .7rem; font-weight: 500; opacity: .7; }
+    .hero-date-hijri { display: flex; align-items: center; gap: 7px; font-size: .78rem; color: rgba(255,255,255,.85); }
+    @@media (max-width: 1200px) {
+        .dashboard-hero { flex-wrap: wrap; }
+    }
+    @@media (max-width: 992px) {
+        .hero-context-wrap { width: 100%; flex-wrap: wrap; }
+        .hero-context-wrap > * { flex: 1 1 205px; }
+    }
+    @@media (max-width: 420px) {
+        .hero-context-wrap > * { flex: auto; width: 100%; }
+    }
+</style>
+
+@code {
+    private static DateTime Today => DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(3)).Date;
+    private static readonly CultureInfo ArabicDateCulture = CreateDateCulture(new GregorianCalendar());
+    private static readonly CultureInfo HijriDateCulture = CreateDateCulture(new UmAlQuraCalendar());
+
+    private static CultureInfo CreateDateCulture(Calendar calendar)
+    {
+        var culture = new CultureInfo("ar-SA");
+        culture.DateTimeFormat.Calendar = calendar;
+        return culture;
+    }
+
+    private DashboardDataVm? data;
+    private List<JournalEntryVm> filteredEntries = new();
+    private bool isLoading = true;
+    private string? errorMessage;
+    private string searchText = string.Empty;
+    private string? level0PieTooltip;
+    private List<Level0BalanceVm> level0BalanceCards = new();
+    private static readonly string[] Level0PieColors =
+        ["#4f46e5", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#14b8a6", "#f97316"];
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            data = await AccountingDataService.GetDashboardDataAsync();
+            filteredEntries = data.RecentEntries.ToList();
+            level0BalanceCards = data.Level0Balances
+                .OrderByDescending(x => Math.Abs(x.Net))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"تعذر تحميل الصفحة الرئيسية: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private static string FormatCurrency(decimal value) => value.ToString("N2");
+
+    private static string FormatCompactCurrency(decimal value) => value.ToString("N0");
+
+    private static string FormatCompactNumber(decimal value)
+    {
+        var absolute = Math.Abs(value);
+        if (absolute >= 1_000_000m) return $"{value / 1_000_000m:0.##}M";
+        if (absolute >= 1_000m) return $"{value / 1_000m:0.#}K";
+        return value.ToString("N0");
+    }
+
+    private IReadOnlyList<FinancialKpiVm> GetFinancialKpis()
+    {
+        var assets = GetNamedBalance(false, "أصول", "موجود", "asset");
+        var expenses = GetNamedBalance(false, "مصروف", "مصاريف", "تكاليف", "expense");
+        var revenues = GetNamedBalance(true, "إيراد", "ايراد", "دخل", "مبيعات", "revenue");
+        var net = revenues - expenses;
+        var maximum = new[] { Math.Abs(assets), Math.Abs(expenses), Math.Abs(revenues), Math.Abs(net) }.Max();
+
+        return
+        [
+            CreateKpi("إجمالي الأصول", assets, "bi-safe2-fill", "#e7a334", maximum, "قيمة الأصول المسجلة", "من إجمالي الأرصدة"),
+            CreateKpi("إجمالي المصروفات", expenses, "bi-receipt-cutoff", "#3964df", maximum, "المصروفات خلال الفترة", "حركة المصروفات الحالية"),
+            CreateKpi("إجمالي الإيرادات", revenues, "bi-cash-stack", "#54b487", maximum, "الإيرادات خلال الفترة", "حركة الإيرادات الحالية"),
+            CreateKpi(net >= 0 ? "فائض الفترة (الربحية)" : "عجز الفترة", net, net >= 0 ? "bi-graph-up-arrow" : "bi-graph-down-arrow", net >= 0 ? "#8258e8" : "#e3534d", maximum, net >= 0 ? "تحول للفائض" : "الفترة تسجل عجزًا", "صافي الإيرادات بعد المصروفات")
+        ];
+    }
+
+    private static FinancialKpiVm CreateKpi(
+        string title, decimal value, string icon, string color, decimal maximum, string detail, string footnote)
+    {
+        var progress = maximum == 0 ? 0 : Math.Abs(value) / maximum * 100m;
+        return new FinancialKpiVm(title, value, icon, color, detail,
+            $"{progress:0.#}%", value >= 0 ? "bi-graph-up-arrow" : "bi-graph-down-arrow", progress, footnote);
+    }
+
+    private decimal GetNamedBalance(bool creditNature, params string[] keywords)
+        => level0BalanceCards
+            .Where(x => keywords.Any(keyword => x.Level0Name.Contains(keyword, StringComparison.OrdinalIgnoreCase)))
+            .Sum(x => creditNature ? x.Credit - x.Debit : x.Debit - x.Credit);
+
+    private static string GetKpiStyle(FinancialKpiVm item)
+        => $"--accent:{item.Color};--progress:{item.Progress.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}%;";
+
+    private IReadOnlyList<Level0BalanceVm> GetComparisonBalances()
+        => level0BalanceCards.Take(6).ToList();
+
+    private string GetComparisonBarStyle(decimal value)
+    {
+        var balances = GetComparisonBalances();
+        var maximum = balances.Count == 0
+            ? 0m
+            : balances.Max(x => new[] { Math.Abs(x.Debit), Math.Abs(x.Credit), Math.Abs(x.Net) }.Max());
+        var height = maximum == 0 ? 0 : Math.Max(2m, Math.Abs(value) / maximum * 100m);
+        return $"--bar-height:{height.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}%;";
+    }
+
+    private decimal GetDistributionTotal()
+        => level0BalanceCards.Sum(x => Math.Abs(x.Net));
+
+    private IReadOnlyList<DonutLegendVm> GetLevel0LegendItems()
+    {
+        var nonZero = level0BalanceCards.Where(x => x.Net != 0m).ToList();
+        var total = nonZero.Sum(x => Math.Abs(x.Net));
+        return nonZero.Select((item, index) => new DonutLegendVm(
+                item.Level0Name,
+                GetLevel0PieColor(index),
+                total == 0 ? 0 : Math.Abs(item.Net) / total * 100m))
+            .ToList();
+    }
+
+    private IReadOnlyList<FinancialIndicatorVm> GetFinancialIndicators()
+    {
+        if (data is null) return [];
+
+        var revenues = GetNamedBalance(true, "إيراد", "ايراد", "دخل", "مبيعات", "revenue");
+        var expenses = GetNamedBalance(false, "مصروف", "مصاريف", "تكاليف", "expense");
+        var balanceMatch = Math.Max(data.TotalDebit, data.TotalCredit) == 0
+            ? 100m
+            : Math.Min(data.TotalDebit, data.TotalCredit) / Math.Max(data.TotalDebit, data.TotalCredit) * 100m;
+        var expenseRatio = revenues == 0 ? 0 : expenses / Math.Abs(revenues) * 100m;
+        var margin = revenues == 0 ? 0 : (revenues - expenses) / Math.Abs(revenues) * 100m;
+
+        return
+        [
+            new("نسبة توازن المدين والدائن", $"{balanceMatch:0.#}%", "bi-shield-check", balanceMatch >= 99.9m ? "#389b71" : "#d28a25"),
+            new("نسبة المصروفات إلى الإيرادات", $"{expenseRatio:0.#}%", "bi-percent", expenseRatio <= 100m ? "#3964df" : "#df574e"),
+            new("هامش صافي الفترة", $"{margin:0.#}%", "bi-heart-pulse-fill", margin >= 0 ? "#389b71" : "#df574e"),
+            new("إجمالي القيود المسجلة", data.JournalEntriesCount.ToString("N0"), "bi-journal-check", "#8358e8")
+        ];
+    }
+
+    private sealed record FinancialKpiVm(
+        string Title, decimal Value, string Icon, string Color, string Detail,
+        string Ratio, string TrendIcon, decimal Progress, string Footnote);
+
+    private sealed record DonutLegendVm(string Name, string Color, decimal Percentage);
+
+    private sealed record FinancialIndicatorVm(string Title, string Value, string Icon, string Color);
+
+    private List<Level0PieSliceVm> GetLevel0PieSlices()
+    {
+        const double center = 120d;
+        const double radius = 110d;
+        var balances = level0BalanceCards.Where(x => x.Net != 0m).ToList();
+        var total = balances.Sum(x => Math.Abs(x.Net));
+        var slices = new List<Level0PieSliceVm>();
+        var startAngle = -90d;
+
+        for (var index = 0; index < balances.Count; index++)
+        {
+            var item = balances[index];
+            var sweepAngle = index == balances.Count - 1
+                ? 270d - startAngle
+                : (double)(Math.Abs(item.Net) / total * 360m);
+            var path = sweepAngle >= 359.999d
+                ? $"M {SvgNumber(center)} {SvgNumber(center - radius)} A {SvgNumber(radius)} {SvgNumber(radius)} 0 1 1 {SvgNumber(center)} {SvgNumber(center + radius)} A {SvgNumber(radius)} {SvgNumber(radius)} 0 1 1 {SvgNumber(center)} {SvgNumber(center - radius)} Z"
+                : BuildPieSlicePath(center, center, radius, startAngle, startAngle + sweepAngle);
+
+            slices.Add(new Level0PieSliceVm(item.Level0Name, item.Net, GetLevel0PieColor(index), path));
+            startAngle += sweepAngle;
+        }
+
+        return slices;
+    }
+
+    private static string GetLevel0PieColor(int index) => Level0PieColors[index % Level0PieColors.Length];
+
+    private static string BuildPieSlicePath(double centerX, double centerY, double radius, double startAngle, double endAngle)
+    {
+        var start = GetPointOnCircle(centerX, centerY, radius, startAngle);
+        var end = GetPointOnCircle(centerX, centerY, radius, endAngle);
+        var largeArc = endAngle - startAngle > 180d ? 1 : 0;
+        return $"M {SvgNumber(centerX)} {SvgNumber(centerY)} L {SvgNumber(start.X)} {SvgNumber(start.Y)} A {SvgNumber(radius)} {SvgNumber(radius)} 0 {largeArc} 1 {SvgNumber(end.X)} {SvgNumber(end.Y)} Z";
+    }
+
+    private static (double X, double Y) GetPointOnCircle(double centerX, double centerY, double radius, double angle)
+    {
+        var radians = angle * Math.PI / 180d;
+        return (centerX + radius * Math.Cos(radians), centerY + radius * Math.Sin(radians));
+    }
+
+    private static string SvgNumber(double value)
+        => value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+
+    private sealed record Level0PieSliceVm(string Name, decimal Value, string Color, string Path);
+
+    private void ShowLevel0PieTooltip(Level0PieSliceVm slice)
+        => level0PieTooltip = $"{slice.Name}: {FormatCurrency(slice.Value)}";
+
+    private void HideLevel0PieTooltip()
+        => level0PieTooltip = null;
+
+    private string GetLevel1BarStyle(decimal value)
+    {
+        var maximum = data?.Level1Balances.Count > 0
+            ? data.Level1Balances.Max(x => Math.Abs(x.Net))
+            : 0;
+        var width = maximum == 0 ? 0 : Math.Abs(value) / maximum * 100;
+        return $"--level1-bar-width:{width.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}%;";
+    }
+
+    private string GetCompanyName()
+        => string.IsNullOrWhiteSpace(SessionService.SelectedCompanyName)
+            ? "غير محددة"
+            : SessionService.SelectedCompanyName;
+
+    private string GetPeriodName()
+        => string.IsNullOrWhiteSpace(SessionService.SelectedPeriodName)
+            ? "غير محددة"
+            : SessionService.SelectedPeriodName;
+
+    private static string GetCategoryCardClass(string key) => key switch
+    {
+        "assets" => "kpi-success",
+        "liabilities" => "kpi-danger",
+        "equity" => "kpi-primary",
+        "revenues" => "kpi-warning",
+        "expenses" => "kpi-neutral",
+        _ => "kpi-primary"
+    };
+
+    private static string GetCategoryIcon(string key) => key switch
+    {
+        "assets" => "bi-bank2",
+        "liabilities" => "bi-cash-stack",
+        "equity" => "bi-pie-chart",
+        "revenues" => "bi-graph-up-arrow",
+        "expenses" => "bi-graph-down-arrow",
+        _ => "bi-diagram-3"
+    };
+
+    private static string GetLevel0CardClass(int level0Id)
+    {
+        var palette = new[] { "kpi-primary", "kpi-success", "kpi-danger", "kpi-warning", "kpi-neutral" };
+        var idx = Math.Abs(level0Id) % palette.Length;
+        return palette[idx];
+    }
+
+    private static string GetLevel0Icon(string level0Name)
+    {
+        if (string.IsNullOrWhiteSpace(level0Name))
+        {
+            return "bi-diagram-2";
+        }
+
+        var name = level0Name.Trim();
+
+        if (name.Contains("أصول", StringComparison.OrdinalIgnoreCase) || name.Contains("موجود", StringComparison.OrdinalIgnoreCase) || name.Contains("asset", StringComparison.OrdinalIgnoreCase))
+            return "bi-bank2";
+        if (name.Contains("خصوم", StringComparison.OrdinalIgnoreCase) || name.Contains("التزام", StringComparison.OrdinalIgnoreCase) || name.Contains("liab", StringComparison.OrdinalIgnoreCase))
+            return "bi-safe2";
+        if (name.Contains("ملكية", StringComparison.OrdinalIgnoreCase) || name.Contains("equity", StringComparison.OrdinalIgnoreCase))
+            return "bi-pie-chart";
+        if (name.Contains("إيراد", StringComparison.OrdinalIgnoreCase) || name.Contains("ايراد", StringComparison.OrdinalIgnoreCase) || name.Contains("revenue", StringComparison.OrdinalIgnoreCase) || name.Contains("دخل", StringComparison.OrdinalIgnoreCase))
+            return "bi-cash-coin";
+        if (name.Contains("مصروف", StringComparison.OrdinalIgnoreCase) || name.Contains("expense", StringComparison.OrdinalIgnoreCase) || name.Contains("تكاليف", StringComparison.OrdinalIgnoreCase))
+            return "bi-wallet2";
+
+        return "bi-diagram-2";
+    }
+
+    private decimal GetNetProfitOrLoss()
+    {
+        var totalRevenue = level0BalanceCards
+            .Where(x => x.Level0Name.Contains("إيراد", StringComparison.OrdinalIgnoreCase)
+                        || x.Level0Name.Contains("ايراد", StringComparison.OrdinalIgnoreCase)
+                        || x.Level0Name.Contains("revenue", StringComparison.OrdinalIgnoreCase)
+                        || x.Level0Name.Contains("دخل", StringComparison.OrdinalIgnoreCase)
+                        || x.Level0Name.Contains("مبيعات", StringComparison.OrdinalIgnoreCase))
+            .Sum(x => x.Credit - x.Debit);
+
+        var totalExpense = level0BalanceCards
+            .Where(x => x.Level0Name.Contains("مصروف", StringComparison.OrdinalIgnoreCase)
+                        || x.Level0Name.Contains("مصاريف", StringComparison.OrdinalIgnoreCase)
+                        || x.Level0Name.Contains("expense", StringComparison.OrdinalIgnoreCase)
+                        || x.Level0Name.Contains("تكاليف", StringComparison.OrdinalIgnoreCase))
+            .Sum(x => x.Debit - x.Credit);
+
+        return totalRevenue - totalExpense;
+    }
+
+    private static string GetCoverageRatio(decimal debit, decimal credit)
+    {
+        if (credit == 0)
+        {
+            return debit == 0 ? "0.00x" : "∞";
+        }
+        var ratio = debit / credit;
+        return $"{ratio:N2}x";
+    }
+
+    private void ApplySearch()
+    {
+        if (data is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(searchText))
+        {
+            filteredEntries = data.RecentEntries.ToList();
+            return;
+        }
+
+        var term = searchText.Trim();
+        filteredEntries = data.RecentEntries.Where(x =>
+                x.GLID.ToString().Contains(term, StringComparison.OrdinalIgnoreCase)
+                || (!string.IsNullOrWhiteSpace(x.SourceName) && x.SourceName.Contains(term, StringComparison.OrdinalIgnoreCase))
+                || (!string.IsNullOrWhiteSpace(x.Description) && x.Description.Contains(term, StringComparison.OrdinalIgnoreCase))
+                || (!string.IsNullOrWhiteSpace(x.Info) && x.Info.Contains(term, StringComparison.OrdinalIgnoreCase))
+                || (!string.IsNullOrWhiteSpace(x.CardName) && x.CardName.Contains(term, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+    }
+
+    private void OnSearchInput(ChangeEventArgs e)
+    {
+        searchText = e.Value?.ToString() ?? string.Empty;
+        ApplySearch();
+    }
+}
+

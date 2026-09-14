@@ -1,0 +1,12 @@
+@page "/accounting/purchase-invoices"
+@layout BlazorApp1.Components.Layout.AccountingLayout
+@using BlazorApp1.Components.Shared
+
+<PageTitle>فواتير المشتريات - النظام المحاسبي</PageTitle>
+
+<SourceTransactionsView Title="فواتير المشتريات"
+                        DetailsTitle="تفاصيل حركات فواتير المشتريات"
+                        SourceId="6"
+                        CreateButtonLabel="إضافة فاتورة مشتريات"
+                        ReturnUrl="/accounting/purchase-invoices"
+                        Icon="bi-file-earmark-arrow-down" />

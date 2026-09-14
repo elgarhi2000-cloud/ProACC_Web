@@ -1,0 +1,1947 @@
+@inject ReportDesignService Designs
+@page "/accounting/journal-entry/new"
+@page "/accounting/journal-entry/{GLID:int}"
+@layout BlazorApp1.Components.Layout.AccountingLayout
+@using BlazorApp1.Services
+@using BlazorApp1.Data.ProAcc
+@inject IAccountingDataService AccountingDataService
+@inject ISessionService SessionService
+@inject IUserAccessService Access
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<PageTitle>@EditorTitle - النظام المحاسبي</PageTitle>
+
+<div class="page-content journal-entry-page" dir="rtl">
+    <div class="journal-entry-page-heading">
+        <h3 class="page-title">
+            <i class="bi bi-journal-text"></i>
+            @EditorTitle
+        </h3>
+        <div class="journal-entry-heading-actions" role="group" aria-label="أدوات القيد">
+            <JournalAttachments @key="glHeader.GLID" EntryId="glHeader.GLID" />
+            @if (IsInvoiceSource)
+            {
+                <button type="button" class="journal-export-button journal-export-pdf" @onclick="() => showInvoicePrint = true" disabled="@isLoading">
+                    <i class="bi bi-printer"></i><span>@(FixedSourceId == 5 ? "طباعة فاتورة المبيعات" : "طباعة فاتورة المشتريات")</span>
+                </button>
+            }
+            <button type="button" class="journal-load-entry-button" @onclick="OpenPreviousEntryPicker" disabled="@IsOpeningSource">
+                <i class="bi bi-copy"></i>
+                <span>تحميل قيد سابق</span>
+            </button>
+            <button type="button" class="journal-export-button journal-export-pdf" @onclick="PrintJournalAsPdf" title="طباعة القيد بصيغة PDF">
+                <i class="bi bi-file-earmark-pdf"></i>
+                <span>طباعة PDF</span>
+            </button>
+            @if (glHeader.SourceID is 2 or 3)
+            {
+                <button type="button" class="journal-export-button journal-export-pdf" @onclick="PrintVoucher" disabled="@isLoading">
+                    <i class="bi bi-printer"></i>
+                    <span>@(glHeader.SourceID == 2 ? "طباعة سند القبض" : "طباعة سند الصرف")</span>
+                </button>
+            }
+            <button type="button" class="journal-export-button journal-export-excel" @onclick="ExportJournalToExcel" title="تصدير القيد إلى Excel">
+                <i class="bi bi-file-earmark-excel"></i>
+                <span>تصدير Excel</span>
+            </button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="Cancel"><i class="bi bi-arrow-right"></i>رجوع</button>
+        </div>
+    </div>
+
+    @if (showInvoicePrint && IsInvoiceSource)
+    {
+        <InvoicePrintPanel Report="BuildJournalExportData()" Header="glHeader" Lines="transactions" IsPurchase="@(FixedSourceId == 6)" OnClose="() => showInvoicePrint = false" />
+    }
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-danger" role="alert">@errorMessage</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(statusMessage))
+    {
+        <div class="alert alert-success">@statusMessage</div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="alert alert-info">جاري التحميل...</div>
+    }
+    else
+    {
+        <section class="card journal-entry-header-card">
+            <div class="card-header journal-entry-section-header">
+                <h5 class="mb-0"><i class="bi bi-info-circle-fill"></i>بيانات رأس القيد</h5>
+            </div>
+            <div class="card-body journal-entry-header-body">
+                <div class="journal-header-groups">
+                    <section class="journal-header-group">
+                        <div class="journal-entry-fields">
+                            <div class="journal-entry-field">
+                                <label>رقم القيد</label>
+                                <input type="text" value="@(glHeader.GLID > 0 ? glHeader.GLID.ToString() : "تلقائي")" disabled />
+                            </div>
+                            <div class="journal-entry-field">
+                                <label>تسلسل القيد</label>
+                                <input type="text" value="@(glHeader.GLSN?.ToString() ?? "تلقائي")" readonly />
+                            </div>
+                            <div class="journal-entry-field">
+                                <label>تاريخ القيد</label>
+                                <input type="date" value="@GetDateValue(glHeader.GLDate)" @onchange="OnDateChanged" />
+                            </div>
+                            <div class="journal-entry-field">
+                                <label>الفترة المالية</label>
+                                <input type="text" value="@(glHeader.PeriodID?.ToString() ?? "-")" readonly />
+                            </div>
+                            <div class="journal-entry-field">
+                                <label>نوع القيد</label>
+                                @if (IsDocumentSource || IsOpeningSource)
+                                {
+                                    <input type="text" value="@GetSourceDisplay()" readonly />
+                                }
+                                else
+                                {
+                                    <button type="button" class="journal-search-control" @onclick='() => OpenLookupPicker("source")'>
+                                        <span class="@(glHeader.SourceID.HasValue ? null : "is-placeholder")">@GetSourceDisplay()</span><i class="bi bi-search"></i>
+                                    </button>
+                                }
+                            </div>
+                            @if (IsDocumentSource)
+                            {
+                                <div class="journal-entry-field">
+                                    <label>@DocumentSequenceLabel</label>
+                                    <input type="text" value="@(glHeader.SanadID?.ToString() ?? "تلقائي")" readonly />
+                                </div>
+                            }
+                            <div class="journal-entry-field">
+                                <label>رقم المرجع</label>
+                                <input type="text" @bind="glHeader.GLRef" />
+                            </div>
+                            <div class="journal-entry-field journal-entry-field-full journal-entry-description">
+                                <label>بيان القيد</label>
+                                <div class="journal-description-control">
+                                    <input type="text" @bind="glHeader.GLDesc" placeholder="اكتب وصفاً واضحاً للقيد" />
+                                    <button type="button"
+                                            class="journal-copy-description-button"
+                                            title="نسخ البيان وتاريخ القيد إلى جميع السطور"
+                                            aria-label="نسخ بيان وتاريخ القيد إلى جميع السطور"
+                                            disabled="@(transactions.Count == 0 || !glHeader.GLDate.HasValue)"
+                                            @onclick="OpenHeaderDataCopyConfirmation">
+                                        <i class="bi bi-copy"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="journal-header-group">
+                        <div class="journal-entry-fields">
+                            <div class="journal-entry-field">
+                                <label>جهة التعامل</label>
+                                <button type="button" class="journal-search-control" @onclick='() => OpenLookupPicker("card")'>
+                                    <span class="@(glHeader.CardID.HasValue ? null : "is-placeholder")">@GetCardDisplay()</span><i class="bi bi-search"></i>
+                                </button>
+                            </div>
+                            @if (IsInvoiceSource)
+                            {
+                                <div class="journal-entry-field">
+                                    <label>@(FixedSourceId == 5 ? "الحساب المدين" : "الحساب الدائن")</label>
+                                    <button type="button" class="journal-search-control" @onclick="OpenHeaderAccountPicker">
+                                        <span class="@(glHeader.GLACC.HasValue ? null : "is-placeholder")">@GetHeaderAccountDisplay()</span><i class="bi bi-search"></i>
+                                    </button>
+                                </div>
+                            }
+                            else
+                            {
+                            <div class="journal-entry-grid-spacer" aria-hidden="true"></div>
+                            }
+                            <div class="journal-entry-field">
+                                <label>اسم البنك</label>
+                                <button type="button" class="journal-search-control" @onclick='() => OpenLookupPicker("bank")'>
+                                    <span class="@(!string.IsNullOrWhiteSpace(glHeader.BankName) ? null : "is-placeholder")">@GetBankDisplay()</span><i class="bi bi-search"></i>
+                                </button>
+                            </div>
+                            <div class="journal-entry-field">
+                                <label>مركز 1</label>
+                                <button type="button" class="journal-search-control" @onclick='() => OpenLookupPicker("center1")'>
+                                    <span class="@(glHeader.Center1.HasValue ? null : "is-placeholder")">@GetCenter1Display()</span><i class="bi bi-search"></i>
+                                </button>
+                            </div>
+                            <div class="journal-entry-field">
+                                <label>طريقة الدفع</label>
+                                <button type="button" class="journal-search-control" @onclick='() => OpenLookupPicker("method")'>
+                                    <span class="@(glHeader.MethodID.HasValue ? null : "is-placeholder")">@GetMethodDisplay()</span><i class="bi bi-search"></i>
+                                </button>
+                            </div>
+                            <div class="journal-entry-field">
+                                <label>مركز 2</label>
+                                <button type="button" class="journal-search-control" @onclick='() => OpenLookupPicker("center2")'>
+                                    <span class="@(glHeader.Center2.HasValue ? null : "is-placeholder")">@GetCenter2Display()</span><i class="bi bi-search"></i>
+                                </button>
+                            </div>
+                            <div class="journal-entry-field">
+                                <label>المستخدم</label>
+                                <input type="text" value="@glHeader.Info" readonly />
+                            </div>
+                            <div class="journal-entry-field">
+                                <label>القيد مؤرشف</label>
+                                <label class="journal-archive-check" aria-label="حالة أرشفة القيد">
+                                    <input type="checkbox" @bind="glHeader.Archive" disabled="@(!Access.Has("Archive"))" />
+                                </label>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </section>
+
+        <section class="card journal-lines-card">
+            @if (IsInvoiceSource)
+            {
+                <div class="journal-subrecord-tabs" role="tablist" aria-label="السجلات الفرعية للفاتورة">
+                    <button type="button"
+                            role="tab"
+                            class="journal-subrecord-tab @(IsInvoiceDataTab ? "active" : null)"
+                            aria-selected="@IsInvoiceDataTab"
+                            @onclick='() => SelectSubrecordTab(InvoiceDataTab)'>
+                        <i class="bi bi-receipt"></i>
+                        <span>بيانات الفاتورة</span>
+                    </button>
+                    <button type="button"
+                            role="tab"
+                            class="journal-subrecord-tab @(!IsInvoiceDataTab ? "active" : null)"
+                            aria-selected="@(!IsInvoiceDataTab)"
+                            @onclick='() => SelectSubrecordTab(AccountingDirectionTab)'>
+                        <i class="bi bi-diagram-3"></i>
+                        <span>التوجيه المحاسبي</span>
+                    </button>
+                </div>
+            }
+            <div class="journal-lines-toolbar">
+                <h5 class="journal-lines-toolbar-title">
+                    <i class="bi @(IsInvoiceDataTab ? "bi-receipt-cutoff" : "bi-list-ul")"></i>
+                    <span>@SubrecordSectionTitle</span>
+                    <small>@ActiveTransactionCount سطر</small>
+                </h5>
+                @if (!IsInvoiceSource || IsInvoiceDataTab)
+                {
+                    <div class="d-flex align-items-center gap-2" style="margin-inline-start:auto">
+                    @if (!IsInvoiceSource)
+                    {
+                        <label class="btn btn-outline-primary btn-sm mb-0" style="position:relative;overflow:hidden">
+                            <i class="bi bi-upload"></i> استيراد CSV
+                            <InputFile OnChange="ImportCsv" accept=".csv" disabled="@(isLoading || isImporting)"
+                                       aria-label="استيراد سجلات القيد من CSV"
+                                       style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%" />
+                        </label>
+                    }
+                    <button class="btn btn-primary btn-sm" @onclick="AddTransaction">
+                        <i class="bi bi-plus-lg"></i>@(IsInvoiceDataTab ? "إضافة صنف" : "إضافة سطر")
+                    </button>
+                    </div>
+                }
+            </div>
+            <div class="journal-lines-body">
+                @if (ActiveTransactionCount == 0)
+                {
+                    <button class="journal-empty-lines" @onclick="AddTransaction"><i class="bi bi-plus-circle"></i><span>@(IsInvoiceDataTab ? "أضف أول صنف للفاتورة" : "أضف أول سطر للقيد")</span></button>
+                }
+                else if (IsInvoiceDataTab)
+                {
+                    <div class="table-responsive journal-lines-table-wrap">
+                        <table id="invoice-lines-table" class="table journal-lines-table invoice-lines-table">
+                            <thead>
+                                <tr>
+                                    <th class="journal-col-index" data-min-width="36" data-max-width="80">#<span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة التلقائية"></span></th>
+                                    <th class="invoice-col-item" data-min-width="100" data-max-width="180">كود الصنف<span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة التلقائية"></span></th>
+                                    <th class="journal-col-description" data-min-width="150" data-max-width="360">الوصف<span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة التلقائية"></span></th>
+                                    <th class="invoice-col-qty" data-min-width="85" data-max-width="160">الكمية<span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة التلقائية"></span></th>
+                                    <th class="invoice-col-money" data-min-width="120" data-max-width="210">المبلغ قبل الضريبة<span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة التلقائية"></span></th>
+                                    <th class="invoice-col-rate" data-min-width="105" data-max-width="180">معدل الضريبة<span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة التلقائية"></span></th>
+                                    <th class="invoice-col-money" data-min-width="105" data-max-width="200">مبلغ الضريبة<span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة التلقائية"></span></th>
+                                    <th class="invoice-col-money" data-min-width="120" data-max-width="210">المبلغ الإجمالي<span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة التلقائية"></span></th>
+                                    <th class="journal-col-account" data-min-width="150" data-max-width="360">اسم الحساب<span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة التلقائية"></span></th>
+                                    <th class="journal-col-doc-ref" data-min-width="100" data-max-width="220">رقم المستند<span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة التلقائية"></span></th>
+                                    <th class="journal-col-doc-date" data-min-width="120" data-max-width="180">تاريخ المستند<span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة التلقائية"></span></th>
+                                    <th class="journal-col-center" data-min-width="140" data-max-width="320">مركز فرعي<span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة التلقائية"></span></th>
+                                    <th class="journal-col-actions" data-min-width="96" data-max-width="180">الإجراءات<span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة التلقائية"></span></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @for (int i = 0; i < transactions.Count; i++)
+                                {
+                                    var idx = i;
+                                    var trans = transactions[idx];
+                                    <tr @key="trans">
+                                        <td class="journal-row-index">@(idx + 1)</td>
+                                        <td><input type="text" class="journal-line-input invoice-number-input" value="@trans.ItemCode" @onchange="@(e => OnItemCodeChanged(idx, e))" /></td>
+                                        <td><input type="text" class="journal-line-input" @bind="trans.TransDesc" @bind:after="SyncAccountingDirection" /></td>
+                                        <td><input type="number" min="0" step="0.0001" class="journal-line-input journal-money-input" value="@GetFlexibleDecimalValue(trans.Qty)" @onchange='@(e => OnInvoiceDecimalChanged(idx, "qty", e))' /></td>
+                                        <td><input type="text" inputmode="decimal" class="journal-line-input journal-money-input" value="@GetDecimalValue(trans.Amount)" @onchange='@(e => OnInvoiceDecimalChanged(idx, "amount", e))' /></td>
+                                        <td>
+                                            <button type="button" class="journal-account-control" @onclick='() => OpenLookupPicker("vat", idx)'>
+                                                <span>@GetTaxRateDisplay(trans.TaxRate)</span><i class="bi bi-search"></i>
+                                            </button>
+                                        </td>
+                                        <td><input type="text" class="journal-line-input journal-money-input journal-calculated-input" value="@GetDecimalValue(trans.TaxAmount)" readonly tabindex="-1" /></td>
+                                        <td><input type="text" class="journal-line-input journal-money-input invoice-total-input journal-calculated-input" value="@GetDecimalValue(trans.TotalAmount)" readonly tabindex="-1" /></td>
+                                        <td>
+                                            <button type="button" class="journal-account-control @(trans.ACCID.HasValue ? null : "empty")" @onclick="() => OpenAccountPicker(idx)">
+                                                <span>@GetAccountName(trans.ACCID)</span><i class="bi bi-search"></i>
+                                            </button>
+                                        </td>
+                                        <td><input type="text" class="journal-line-input" @bind="trans.DocRef" @bind:after="SyncAccountingDirection" /></td>
+                                        <td><input type="date" class="journal-line-input journal-date-input" value="@GetDateValue(trans.DocDate)" @onchange="@(e => OnDocumentDateChanged(idx, e))" /></td>
+                                        <td>
+                                            <button type="button" class="journal-account-control @(trans.Center3.HasValue ? null : "empty")" @onclick='() => OpenLookupPicker("center3", idx)'>
+                                                <span>@GetCenter3Display(trans.Center3)</span><i class="bi bi-search"></i>
+                                            </button>
+                                        </td>
+                                        <td>
+                                            <div class="entry-actions" role="group" aria-label="إجراءات صنف الفاتورة رقم @(idx + 1)">
+                                                <button type="button" class="action-btn action-move" title="نقل الصنف إلى أعلى" aria-label="نقل الصنف رقم @(idx + 1) إلى أعلى" disabled="@(idx == 0)" @onclick="() => MoveTransaction(idx, idx - 1)"><i class="bi bi-arrow-up" aria-hidden="true"></i></button>
+                                                <button type="button" class="action-btn action-move" title="نقل الصنف إلى أسفل" aria-label="نقل الصنف رقم @(idx + 1) إلى أسفل" disabled="@(idx == transactions.Count - 1)" @onclick="() => MoveTransaction(idx, idx + 1)"><i class="bi bi-arrow-down" aria-hidden="true"></i></button>
+                                                <button type="button" class="action-btn action-delete" title="حذف الصنف" aria-label="حذف الصنف رقم @(idx + 1)" @onclick="() => RemoveTransaction(idx)"><i class="bi bi-trash" aria-hidden="true"></i></button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <th colspan="4" class="text-end">الإجماليات</th>
+                                    <th>@invoiceAmountTotal.ToString("N2")</th>
+                                    <th></th>
+                                    <th>@invoiceTaxTotal.ToString("N2")</th>
+                                    <th class="invoice-grand-total">@invoiceGrandTotal.ToString("N2")</th>
+                                    <th colspan="5"></th>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    var displayedTransactions = IsInvoiceSource ? AccountingDirectionTransactions : transactions;
+                    <div class="table-responsive journal-lines-table-wrap">
+                        <table id="journal-lines-table" class="table journal-lines-table">
+                            <thead>
+                                <tr>
+                                    <th class="journal-col-index" data-min-width="36" data-max-width="80">#<span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة التلقائية"></span></th>
+                                    <th class="journal-col-code" data-min-width="90" data-max-width="220">رقم الحساب<span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة التلقائية"></span></th>
+                                    <th class="journal-col-account" data-min-width="150" data-max-width="420">اسم الحساب<span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة التلقائية"></span></th>
+                                    <th class="journal-col-description" data-min-width="210" data-max-width="480">الوصف<span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة التلقائية"></span></th>
+                                    <th class="journal-col-money" data-min-width="95" data-max-width="220">مدين<span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة التلقائية"></span></th>
+                                    <th class="journal-col-money" data-min-width="95" data-max-width="220">دائن<span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة التلقائية"></span></th>
+                                    <th class="journal-col-doc-ref" data-min-width="85" data-max-width="220">رقم المستند<span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة التلقائية"></span></th>
+                                    <th class="journal-col-doc-date" data-min-width="110" data-max-width="180">تاريخ المستند<span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة التلقائية"></span></th>
+                                    <th class="journal-col-center" data-min-width="135" data-max-width="360">مركز فرعي<span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة التلقائية"></span></th>
+                                    <th class="journal-col-actions" data-min-width="96" data-max-width="180">الإجراءات<span class="journal-column-resizer" title="اسحب لتغيير العرض، وانقر مرتين للملاءمة التلقائية"></span></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @for (int i = 0; i < displayedTransactions.Count; i++)
+                                {
+                                    var idx = i;
+                                    var trans = displayedTransactions[idx];
+                                    <tr @key="trans">
+                                        <td class="journal-row-index">@(idx + 1)</td>
+                                        <td class="journal-account-code">@GetAccountCode(trans.ACCID)</td>
+                                        <td>
+                                            <button type="button" class="journal-account-control @(trans.ACCID.HasValue ? null : "empty")" @onclick="() => OpenDisplayedAccountPicker(idx)">
+                                                <span>@GetAccountName(trans.ACCID)</span><i class="bi bi-search"></i>
+                                            </button>
+                                        </td>
+                                        <td>
+                                            <input type="text" class="journal-line-input journal-line-description" @bind="trans.TransDesc" placeholder="وصف الحركة" />
+                                        </td>
+                                        <td>
+                                            <input type="text" inputmode="decimal" class="journal-line-input journal-money-input debit" value="@GetDecimalValue(trans.DR)" @onchange="@(e => OnDisplayedDebitChange(idx, e))" />
+                                        </td>
+                                        <td>
+                                            <input type="text" inputmode="decimal" class="journal-line-input journal-money-input credit" value="@GetDecimalValue(trans.CR)" @onchange="@(e => OnDisplayedCreditChange(idx, e))" />
+                                        </td>
+                                        <td>
+                                            <input type="text" class="journal-line-input" @bind="trans.DocRef" />
+                                        </td>
+                                        <td>
+                                            <input type="date" class="journal-line-input journal-date-input" value="@GetDateValue(trans.DocDate)" @onchange="@(e => OnDisplayedDocumentDateChanged(idx, e))" />
+                                        </td>
+                                        <td>
+                                            <button type="button" class="journal-account-control @(trans.Center3.HasValue ? null : "empty")" @onclick="() => OpenDisplayedCenterPicker(idx)">
+                                                <span>@GetCenter3Display(trans.Center3)</span><i class="bi bi-search"></i>
+                                            </button>
+                                        </td>
+                                        <td>
+                                            @if (IsInvoiceSource)
+                                            {
+                                                <span class="journal-generated-badge"><i class="bi bi-pencil-square"></i> قابل للتعديل</span>
+                                            }
+                                            else
+                                            {
+                                                <div class="entry-actions" role="group" aria-label="إجراءات السطر رقم @(idx + 1)">
+                                                <button type="button"
+                                                        class="action-btn action-move"
+                                                        title="نقل السطر إلى أعلى"
+                                                        aria-label="نقل السطر رقم @(idx + 1) إلى أعلى"
+                                                        disabled="@(idx == 0)"
+                                                        @onclick="() => MoveDisplayedTransaction(idx, idx - 1)">
+                                                    <i class="bi bi-arrow-up" aria-hidden="true"></i>
+                                                </button>
+                                                <button type="button"
+                                                        class="action-btn action-move"
+                                                        title="نقل السطر إلى أسفل"
+                                                        aria-label="نقل السطر رقم @(idx + 1) إلى أسفل"
+                                                        disabled="@(idx == displayedTransactions.Count - 1)"
+                                                        @onclick="() => MoveDisplayedTransaction(idx, idx + 1)">
+                                                    <i class="bi bi-arrow-down" aria-hidden="true"></i>
+                                                </button>
+                                                <button type="button" class="action-btn action-delete" title="حذف السطر" aria-label="حذف السطر رقم @(idx + 1)" @onclick="() => RemoveDisplayedTransaction(idx)">
+                                                    <i class="bi bi-trash" aria-hidden="true"></i>
+                                                </button>
+                                                </div>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <th colspan="4" class="text-end">الإجمالي</th>
+                                    <th class="journal-total-debit">@totalDebit.ToString("N2")</th>
+                                    <th class="journal-total-credit">@totalCredit.ToString("N2")</th>
+                                    <th colspan="4"></th>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                }
+            </div>
+        </section>
+
+        <div class="journal-entry-footer">
+            <div class="journal-balance-status @(IsBalanced ? "balanced" : "unbalanced")">
+                <i class="bi @(IsBalanced ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
+                <span>@(IsBalanced ? "القيد متوازن" : $"القيد غير متوازن — الفرق {BalanceDifference:N2}")</span>
+            </div>
+            <div class="journal-entry-footer-actions">
+                <button class="btn btn-outline-secondary" @onclick="Cancel"><i class="bi bi-x-lg"></i>إلغاء</button>
+            <button class="btn btn-primary" @onclick="SaveEntry" disabled="@(!CanSave())">
+                    <i class="bi bi-check2-circle"></i>حفظ القيد
+            </button>
+            </div>
+        </div>
+    }
+</div>
+
+@if (showAccountPicker)
+{
+    <div class="account-picker-overlay" @onclick="CloseAccountPicker">
+        <div class="account-picker-dialog" role="dialog" aria-modal="true" aria-labelledby="account-picker-title" @onclick:stopPropagation="true">
+            <div class="account-picker-header">
+                <div>
+                    <h5 id="account-picker-title" class="mb-1">اختيار الحساب</h5>
+                    <small>@(accountPickerTargetsHeader ? $"اختر {(FixedSourceId == 5 ? "الحساب المدين" : "الحساب الدائن")} لرأس الفاتورة" : $"اختر الحساب الخاص بالسجل رقم {accountPickerTransactionIndex + 1}")</small>
+                </div>
+                <button type="button" class="btn btn-sm btn-light" @onclick="CloseAccountPicker" aria-label="إغلاق">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+
+            <div class="account-picker-search">
+                <i class="bi bi-search"></i>
+                <input class="form-control"
+                       value="@accountSearchText"
+                       @oninput="OnAccountSearchInput"
+                       placeholder="ابحث باسم الحساب أو رقمه"
+                       autofocus />
+                @if (!string.IsNullOrWhiteSpace(accountSearchText))
+                {
+                    <button type="button" class="account-search-clear" @onclick="ClearAccountSearch" aria-label="مسح البحث">
+                        <i class="bi bi-x-circle"></i>
+                    </button>
+                }
+            </div>
+
+            <div class="account-picker-summary">
+                <span>@FilteredAccounts.Count حساب</span>
+                <span>يمكن البحث بالاسم أو الرقم</span>
+            </div>
+
+            <div class="account-picker-list">
+                @if (FilteredAccounts.Count == 0)
+                {
+                    <div class="account-picker-empty">
+                        <i class="bi bi-search"></i>
+                        <strong>لا توجد حسابات مطابقة</strong>
+                        <span>جرّب اسماً أو رقماً مختلفاً</span>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var account in FilteredAccounts)
+                    {
+                        var isSelected = IsAccountSelected(account.ACCID);
+                        <button type="button"
+                                class="account-picker-item @(isSelected ? "selected" : null)"
+                                @onclick="() => SelectAccount(account.ACCID)">
+                            <span class="account-picker-icon"><i class="bi bi-wallet2"></i></span>
+                            <span class="account-picker-name">@account.Name</span>
+                            <span class="account-picker-number">#@account.ACCID</span>
+                            @if (isSelected)
+                            {
+                                <i class="bi bi-check-circle-fill account-picker-check"></i>
+                            }
+                        </button>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@if (showLookupPicker)
+{
+    <div class="account-picker-overlay" @onclick="CloseLookupPicker">
+        <div class="account-picker-dialog journal-lookup-dialog" role="dialog" aria-modal="true" aria-labelledby="lookup-picker-title" @onclick:stopPropagation="true">
+            <div class="account-picker-header">
+                <div><h5 id="lookup-picker-title" class="mb-1">@LookupPickerTitle</h5><small>ابحث بالاسم أو الرقم ثم اختر السجل</small></div>
+                <button type="button" class="btn btn-sm btn-light" @onclick="CloseLookupPicker" aria-label="إغلاق"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="account-picker-search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" value="@lookupSearchText" @oninput="OnLookupSearchInput" placeholder="بحث..." autofocus />
+                @if (!string.IsNullOrWhiteSpace(lookupSearchText))
+                {
+                    <button type="button" class="account-search-clear" @onclick="ClearLookupSearch" aria-label="مسح البحث"><i class="bi bi-x-circle"></i></button>
+                }
+            </div>
+            <div class="account-picker-summary"><span>@FilteredLookupItems.Count نتيجة</span><span>الاختيار يحفظ رقم السجل المرتبط</span></div>
+            <div class="account-picker-list">
+                @if (activeLookupKind != "vat")
+                {
+                    <button type="button" class="account-picker-item journal-lookup-clear" @onclick="ClearLookupSelection">
+                        <span class="account-picker-icon"><i class="bi bi-slash-circle"></i></span><span class="account-picker-name">بدون اختيار</span><span></span>
+                    </button>
+                }
+                @foreach (var item in FilteredLookupItems)
+                {
+                    <button type="button" class="account-picker-item @(IsLookupItemSelected(item.Id) ? "selected" : null)" @onclick="() => SelectLookupItem(item.Id)">
+                        <span class="account-picker-icon"><i class="bi bi-card-list"></i></span>
+                        <span class="account-picker-name">@item.Name</span>
+                        <span class="account-picker-number">@item.Code</span>
+                        @if (IsLookupItemSelected(item.Id)) { <i class="bi bi-check-circle-fill account-picker-check"></i> }
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@if (showPreviousEntryPicker)
+{
+    <div class="account-picker-overlay" @onclick="ClosePreviousEntryPicker">
+        <div class="account-picker-dialog journal-entry-copy-dialog" role="dialog" aria-modal="true" aria-labelledby="previous-entry-picker-title" @onclick:stopPropagation="true">
+            <div class="account-picker-header">
+                <div>
+                    <h5 id="previous-entry-picker-title" class="mb-1">تحميل بيانات قيد سابق</h5>
+                    <small>ابحث عن القيد ثم اختره لنسخ بياناته وحركاته</small>
+                </div>
+                <button type="button" class="btn btn-sm btn-light" @onclick="ClosePreviousEntryPicker" aria-label="إغلاق"><i class="bi bi-x-lg"></i></button>
+            </div>
+
+            <div class="px-3 pt-3">
+                <label for="copy-period" class="form-label">الفترة المالية للقيد المراد نسخه</label>
+                <select id="copy-period" class="form-select" value="@copyPeriodId" @onchange="ChangeCopyPeriod" disabled="@isLoadingPreviousEntries">
+                    @foreach (var period in copyPeriods)
+                    {
+                        <option value="@period.PeriodId">@period.PeriodName @(period.PeriodId == SessionService.SelectedPeriodId ? "(الحالية)" : "(سابقة)")</option>
+                    }
+                </select>
+            </div>
+            <div class="account-picker-search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" value="@previousEntrySearchText" @oninput="OnPreviousEntrySearchInput" placeholder="ابحث برقم القيد أو الوصف أو المصدر أو العميل" autofocus />
+                @if (!string.IsNullOrWhiteSpace(previousEntrySearchText))
+                {
+                    <button type="button" class="account-search-clear" @onclick="ClearPreviousEntrySearch" aria-label="مسح البحث"><i class="bi bi-x-circle"></i></button>
+                }
+            </div>
+
+            <div class="account-picker-summary">
+                <span>@FilteredPreviousEntries.Count قيد</span>
+                <span>سيبقى رقم وتاريخ وفترة القيد الحالي دون تغيير</span>
+            </div>
+
+            <div class="account-picker-list journal-entry-copy-list">
+                @if (isLoadingPreviousEntries)
+                {
+                    <div class="account-picker-empty"><i class="bi bi-hourglass-split"></i><strong>جاري تحميل القيود...</strong></div>
+                }
+                else if (FilteredPreviousEntries.Count == 0)
+                {
+                    <div class="account-picker-empty"><i class="bi bi-search"></i><strong>لا توجد قيود مطابقة</strong><span>جرّب رقماً أو وصفاً مختلفاً</span></div>
+                }
+                else
+                {
+                    @foreach (var entry in FilteredPreviousEntries)
+                    {
+                        <button type="button" class="journal-entry-copy-item" @onclick="() => CopyPreviousEntry(entry.GLID)">
+                            <span class="journal-entry-copy-id">#@entry.GLID</span>
+                            <span class="journal-entry-copy-main">
+                                <strong>@(string.IsNullOrWhiteSpace(entry.Description) ? "قيد بدون بيان" : entry.Description)</strong>
+                                <small>@entry.SourceName @(!string.IsNullOrWhiteSpace(entry.CardName) ? $"— {entry.CardName}" : null)</small>
+                            </span>
+                            <span class="journal-entry-copy-date">@GetDisplayDate(entry.Date)</span>
+                            <span class="journal-entry-copy-total">@entry.Debit.ToString("N2")</span>
+                            <i class="bi bi-chevron-left"></i>
+                        </button>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@if (showHeaderDataCopyConfirmation)
+{
+    <div class="account-picker-overlay" @onclick="CloseHeaderDataCopyConfirmation">
+        <div class="account-picker-dialog journal-copy-confirm-dialog"
+             role="dialog"
+             aria-modal="true"
+             aria-labelledby="header-data-copy-title"
+             @onclick:stopPropagation="true">
+            <div class="account-picker-header">
+                <div>
+                    <h5 id="header-data-copy-title" class="mb-1">تعميم بيانات رأس القيد</h5>
+                    <small>سيتم استبدال البيان وتاريخ المستند في جميع السطور الحالية.</small>
+                </div>
+                <button type="button" class="btn btn-sm btn-light" @onclick="CloseHeaderDataCopyConfirmation" aria-label="إغلاق">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="journal-copy-confirm-body">
+                <i class="bi bi-copy"></i>
+                <span>هل تريد نسخ بيان القيد وتاريخه إلى @transactions.Count سطر؟</span>
+            </div>
+            <div class="journal-copy-confirm-actions">
+                <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CloseHeaderDataCopyConfirmation">إلغاء</button>
+                <button type="button" class="btn btn-primary btn-sm" @onclick="CopyHeaderDataToTransactions">
+                    <i class="bi bi-check2"></i>تأكيد النسخ
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private const string InvoiceDataTab = "invoice";
+    private const string AccountingDirectionTab = "accounting";
+    private const decimal DefaultVatRate = 15m;
+
+    [Parameter] public int? GLID { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "sourceId")] public int? FixedSourceId { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "returnUrl")] public string? ReturnUrl { get; set; }
+
+    private GlEntity glHeader = new() { GLDate = DateTime.Today };
+    private List<TransEntity> transactions = new();
+    private List<TransEntity> invoiceAccountingTransactions = new();
+    private string activeSubrecordTab = string.Empty;
+    private List<AccEntity> accounts = new();
+    private List<SourceEntity> sources = new();
+    private List<CardEntity> cards = new();
+    private List<MethodEntity> methods = new();
+    private List<BankEntity> banks = new();
+    private List<Center1Entity> centers1 = new();
+    private List<Center2Entity> centers2 = new();
+    private List<Center3Entity> centers3 = new();
+    private List<VatEntity> vatRates = new();
+    private List<JournalEntryVm> previousEntries = new();
+    private SettingsDataVm settingsData = new();
+
+    private bool isLoading = false;
+    private bool isImporting;
+    private async Task ImportCsv(InputFileChangeEventArgs args)
+    {
+        if (isLoading || isImporting || IsInvoiceSource) return;
+        isImporting = true;
+        errorMessage = statusMessage = null;
+        try
+        {
+            await Access.RequireAsync(SectionAccess.Source(glHeader.SourceID));
+            if (glHeader.GLID > 0) await Access.RequireEntryAsync(glHeader.GLID);
+            if (!string.Equals(System.IO.Path.GetExtension(args.File.Name), ".csv", StringComparison.OrdinalIgnoreCase))
+                throw new FormatException("اختر ملف CSV.");
+            await using var stream = args.File.OpenReadStream(JournalCsvImporter.MaxFileSize);
+            using var reader = new System.IO.StreamReader(stream, new System.Text.UTF8Encoding(false, true), true);
+            var imported = JournalCsvImporter.Parse(await reader.ReadToEndAsync(), accounts, glHeader.GLID);
+            transactions.RemoveAll(t => !t.ACCID.HasValue && (t.DR ?? 0) == 0 && (t.CR ?? 0) == 0
+                && string.IsNullOrWhiteSpace(t.TransDesc) && string.IsNullOrWhiteSpace(t.DocRef)
+                && !t.DocDate.HasValue && !t.Center3.HasValue);
+            transactions.AddRange(imported);
+            tableColumnsInitialized = false;
+            statusMessage = $"تم استيراد {imported.Count} سطر. راجع السطور وتوازن القيد ثم اضغط حفظ.";
+        }
+        catch (FormatException ex) { errorMessage = ex.Message; }
+        catch (UnauthorizedAccessException ex) { errorMessage = ex.Message; }
+        catch (System.Text.DecoderFallbackException) { errorMessage = "احفظ الملف بترميز UTF-8 ثم أعد المحاولة."; }
+        catch (System.IO.IOException) { errorMessage = "تعذر قراءة الملف؛ تحقق من حجمه (5 ميغابايت كحد أقصى) وأعد المحاولة."; }
+        finally { isImporting = false; }
+    }
+    private string? errorMessage;
+    private string? statusMessage;
+    private int? selectedFinancialYear;
+    private bool showAccountPicker;
+    private int accountPickerTransactionIndex = -1;
+    private bool accountPickerTargetsHeader;
+    private bool accountPickerTargetsAccountingDirection;
+    private string accountSearchText = string.Empty;
+    private bool showLookupPicker;
+    private string activeLookupKind = string.Empty;
+    private string lookupSearchText = string.Empty;
+    private int lookupTransactionIndex = -1;
+    private bool lookupTargetsAccountingDirection;
+    private bool showPreviousEntryPicker;
+    private bool showHeaderDataCopyConfirmation;
+    private bool tableColumnsInitialized;
+    private bool isLoadingPreviousEntries;
+    private string previousEntrySearchText = string.Empty;
+    private decimal invoiceAmountTotal => transactions.Sum(t => t.Amount ?? 0m);
+    private decimal invoiceTaxTotal => transactions.Sum(t => t.TaxAmount ?? 0m);
+    private decimal invoiceGrandTotal => transactions.Sum(t => t.TotalAmount ?? 0m);
+    private List<TransEntity> AccountingDirectionTransactions => invoiceAccountingTransactions;
+    private int ActiveTransactionCount => IsInvoiceSource && !IsInvoiceDataTab ? AccountingDirectionTransactions.Count : transactions.Count;
+    private decimal totalDebit => (IsInvoiceSource ? AccountingDirectionTransactions : transactions).Sum(t => t.DR ?? 0);
+    private decimal totalCredit => (IsInvoiceSource ? AccountingDirectionTransactions : transactions).Sum(t => t.CR ?? 0);
+    private decimal BalanceDifference => Math.Abs(totalDebit - totalCredit);
+    private bool IsBalanced => BalanceDifference <= 0.01m;
+    private bool IsOpeningSource => FixedSourceId == 4;
+    private bool IsDocumentSource => FixedSourceId is 2 or 3 or 5 or 6;
+    private bool IsInvoiceSource => FixedSourceId is 5 or 6;
+    private bool IsInvoiceDataTab => IsInvoiceSource && activeSubrecordTab == InvoiceDataTab;
+    private string SubrecordSectionTitle => IsInvoiceDataTab
+        ? "بيانات الفاتورة"
+        : IsInvoiceSource ? "التوجيه المحاسبي" : "تفاصيل القيد";
+    private string ActiveLinesTableId => IsInvoiceDataTab ? "invoice-lines-table" : "journal-lines-table";
+    private string DocumentName => FixedSourceId switch
+    {
+        4 => "قيد افتتاحي",
+        2 => "سند قبض",
+        3 => "سند صرف",
+        5 => "فاتورة مبيعات",
+        6 => "فاتورة مشتريات",
+        _ => "قيد يومية"
+    };
+    private string EditorTitle => $"{(GLID.HasValue ? "تعديل" : "إضافة")} {DocumentName}";
+    private string DocumentSequenceLabel => FixedSourceId is 5 or 6 ? "رقم الفاتورة" : "رقم السند";
+    private string LookupPickerTitle => activeLookupKind switch
+    {
+        "source" => "اختيار نوع القيد",
+        "card" => "اختيار جهة التعامل",
+        "method" => "اختيار طريقة الدفع",
+        "bank" => "اختيار البنك",
+        "center1" => "اختيار مركز 1",
+        "center2" => "اختيار مركز 2",
+        "center3" => "اختيار المركز الفرعي",
+        "vat" => "اختيار معدل الضريبة",
+        _ => "اختيار سجل"
+    };
+
+    private List<LookupItem> FilteredLookupItems
+    {
+        get
+        {
+            IEnumerable<LookupItem> query = GetLookupItems();
+            if (!string.IsNullOrWhiteSpace(lookupSearchText))
+            {
+                var term = lookupSearchText.Trim();
+                query = query.Where(item =>
+                    item.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
+                    || item.Code.Contains(term, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return query.OrderBy(item => item.Name).ThenBy(item => item.Id).ToList();
+        }
+    }
+    private List<AccEntity> FilteredAccounts
+    {
+        get
+        {
+            IEnumerable<AccEntity> query = accounts.Where(account => account.Active == true);
+
+            if (!string.IsNullOrWhiteSpace(accountSearchText))
+            {
+                var term = accountSearchText.Trim();
+                query = query.Where(account =>
+                    account.ACCID.ToString().Contains(term, StringComparison.OrdinalIgnoreCase)
+                    || (!string.IsNullOrWhiteSpace(account.Name)
+                        && account.Name.Contains(term, StringComparison.OrdinalIgnoreCase)));
+            }
+
+            return query
+                .OrderBy(account => account.Name)
+                .ThenBy(account => account.ACCID)
+                .ToList();
+        }
+    }
+
+    private List<JournalEntryVm> FilteredPreviousEntries
+    {
+        get
+        {
+            IEnumerable<JournalEntryVm> query = previousEntries;
+            if (GLID.HasValue)
+            {
+                query = query.Where(entry => entry.GLID != GLID.Value);
+            }
+
+            if (!string.IsNullOrWhiteSpace(previousEntrySearchText))
+            {
+                var term = previousEntrySearchText.Trim();
+                query = query.Where(entry =>
+                    entry.GLID.ToString().Contains(term, StringComparison.OrdinalIgnoreCase)
+                    || (entry.SerialNo?.ToString().Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
+                    || entry.Description.Contains(term, StringComparison.OrdinalIgnoreCase)
+                    || entry.SourceName.Contains(term, StringComparison.OrdinalIgnoreCase)
+                    || entry.CardName.Contains(term, StringComparison.OrdinalIgnoreCase)
+                    || GetDisplayDate(entry.Date).Contains(term, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return query.Take(200).ToList();
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (!IsInvoiceSource)
+        {
+            activeSubrecordTab = AccountingDirectionTab;
+        }
+        else if (activeSubrecordTab != InvoiceDataTab && activeSubrecordTab != AccountingDirectionTab)
+        {
+            activeSubrecordTab = InvoiceDataTab;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadLookups();
+
+        if (GLID.HasValue)
+        {
+            await LoadEntry(GLID.Value);
+        }
+        else if (IsOpeningSource)
+        {
+            try
+            {
+                var draft = await AccountingDataService.CreateOpeningEntryDraftAsync();
+                glHeader = draft.Header;
+                transactions = draft.Transactions;
+                statusMessage = "تم تحميل أرصدة BALANCE من السنة السابقة. أضف فرق الربح أو الخسارة يدويًا ليصبح القيد متوازنًا قبل الحفظ.";
+                AddTransaction();
+            }
+            catch (InvalidOperationException ex) { errorMessage = ex.Message; }
+            catch { errorMessage = "تعذر تحميل الأرصدة الافتتاحية من السنة السابقة."; }
+        }
+        else if (transactions.Count == 0)
+        {
+            AddTransaction();
+            AddTransaction();
+        }
+    }
+
+    private async Task LoadLookups()
+    {
+        isLoading = true;
+        try
+        {
+            settingsData = await AccountingDataService.GetSettingsDataAsync();
+            selectedFinancialYear = settingsData.ActivePeriodStart?.Year;
+
+            if (!glHeader.PeriodID.HasValue && SessionService.SelectedPeriodId.HasValue)
+            {
+                glHeader.PeriodID = SessionService.SelectedPeriodId.Value;
+            }
+
+            if (!glHeader.GLDate.HasValue && selectedFinancialYear.HasValue)
+            {
+                glHeader.GLDate = new DateTime(selectedFinancialYear.Value, 1, 1);
+            }
+
+            var lookupsTask = AccountingDataService.GetJournalEntryLookupsAsync();
+            var lookups = await lookupsTask;
+            accounts = lookups.Accounts;
+            sources = lookups.Sources;
+            cards = lookups.Cards;
+            methods = lookups.Methods;
+            banks = lookups.Banks;
+            centers1 = lookups.Centers1;
+            centers2 = lookups.Centers2;
+            centers3 = lookups.Centers3;
+            vatRates = lookups.VatRates;
+            if (!GLID.HasValue && (IsDocumentSource || IsOpeningSource))
+            {
+                glHeader.SourceID = FixedSourceId;
+            }
+            else if (!GLID.HasValue && !glHeader.SourceID.HasValue)
+            {
+                var journalSource = sources.FirstOrDefault(source => source.SourceID == 1)
+                    ?? sources.FirstOrDefault(source =>
+                        string.Equals(source.Source?.Trim(), "قيد يومية", StringComparison.OrdinalIgnoreCase));
+                glHeader.SourceID = journalSource?.SourceID;
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex);
+            errorMessage = "تعذر تحميل البيانات؛ حاول مرة أخرى أو راجع مسؤول النظام.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadEntry(int glid)
+    {
+        isLoading = true;
+        try
+        {
+            var entry = await AccountingDataService.GetJournalEntryDetailAsync(glid);
+            if (entry != null)
+            {
+                glHeader = entry.Header;
+                if (IsInvoiceSource)
+                {
+                    transactions = entry.Transactions.Where(IsInvoiceDetailRow).ToList();
+                    invoiceAccountingTransactions = entry.Transactions.ToList();
+                }
+                else
+                {
+                    transactions = entry.Transactions;
+                }
+                NormalizeTransactionAmounts();
+                if (IsInvoiceSource && !invoiceAccountingTransactions.Any(transaction => !IsInvoiceDetailRow(transaction)))
+                {
+                    SyncAccountingDirection();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex);
+            errorMessage = "تعذر تحميل القيد؛ حاول مرة أخرى أو راجع مسؤول النظام.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void AddTransaction()
+    {
+        transactions.Add(new TransEntity
+        {
+            GLID = glHeader.GLID,
+            DR = 0m,
+            CR = 0m,
+            TaxRate = IsInvoiceSource ? GetDefaultVatRate() : null,
+            Amount = IsInvoiceSource ? 0m : null,
+            TaxAmount = IsInvoiceSource ? 0m : null,
+            TotalAmount = IsInvoiceSource ? 0m : null,
+            Qty = IsInvoiceSource ? 0m : null,
+            UnitPrice = IsInvoiceSource ? 0m : null,
+            Discount = IsInvoiceSource ? 0m : null
+        });
+        if (IsInvoiceSource)
+        {
+            RecalculateInvoiceAmounts(transactions[^1]);
+            SyncAccountingDirection();
+        }
+        tableColumnsInitialized = false;
+    }
+
+    private void AddDisplayedTransaction()
+    {
+        if (IsInvoiceSource && !IsInvoiceDataTab)
+        {
+            invoiceAccountingTransactions.Add(new TransEntity { DR = 0m, CR = 0m });
+            tableColumnsInitialized = false;
+            return;
+        }
+
+        AddTransaction();
+    }
+
+    private void SelectSubrecordTab(string tab)
+    {
+        if (!IsInvoiceSource || (tab != InvoiceDataTab && tab != AccountingDirectionTab))
+        {
+            return;
+        }
+
+        activeSubrecordTab = tab;
+        tableColumnsInitialized = false;
+    }
+
+    private void OpenHeaderDataCopyConfirmation()
+    {
+        if (transactions.Count == 0 || !glHeader.GLDate.HasValue)
+        {
+            return;
+        }
+
+        showHeaderDataCopyConfirmation = true;
+    }
+
+    private void CloseHeaderDataCopyConfirmation()
+    {
+        showHeaderDataCopyConfirmation = false;
+    }
+
+    private void CopyHeaderDataToTransactions()
+    {
+        var entryDate = glHeader.GLDate?.Date;
+        foreach (var transaction in transactions)
+        {
+            transaction.TransDesc = glHeader.GLDesc;
+            transaction.DocDate = entryDate;
+        }
+
+        if (IsInvoiceSource) SyncAccountingDirection();
+
+        showHeaderDataCopyConfirmation = false;
+        statusMessage = $"تم نسخ بيان وتاريخ القيد إلى {transactions.Count} سطر بنجاح.";
+    }
+
+    private bool showInvoicePrint;
+
+    private async Task PrintVoucher()
+    {
+        errorMessage = null;
+        try
+        {
+            var debit = transactions.Sum(t => t.DR ?? 0m);
+            var credit = transactions.Sum(t => t.CR ?? 0m);
+            if (debit <= 0 || debit != credit)
+            {
+                errorMessage = "يجب أن يكون السند متوازنًا وبمبلغ أكبر من صفر قبل الطباعة.";
+                return;
+            }
+            var printReport = BuildJournalExportData();
+            printReport.Design = await Designs.ForPrintAsync(glHeader.SourceID == 2 ? "receipt" : "payment");
+            await JS.InvokeVoidAsync("journalEntryExport.print", printReport, new
+            {
+                title = glHeader.SourceID == 2 ? "سند قبض" : "سند صرف",
+                number = glHeader.SanadID,
+                amount = decimal.Round(debit, 2),
+                isReceipt = glHeader.SourceID == 2
+            });
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex);
+            errorMessage = "تعذرت طباعة السند؛ حاول مرة أخرى أو راجع مسؤول النظام.";
+        }
+    }
+
+    private async Task PrintJournalAsPdf()
+    {
+        errorMessage = null;
+        try
+        {
+            var printReport = BuildJournalExportData();
+            printReport.Design = await Designs.ForPrintAsync("journal");
+            await JS.InvokeVoidAsync("journalEntryExport.print", printReport);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex);
+            errorMessage = "تعذرت طباعة القيد؛ حاول مرة أخرى أو راجع مسؤول النظام.";
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (tableColumnsInitialized || isLoading || transactions.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("journalEntryTableColumns.fit", ActiveLinesTableId);
+            tableColumnsInitialized = true;
+        }
+        catch
+        {
+            tableColumnsInitialized = false;
+        }
+    }
+
+    private async Task ExportJournalToExcel()
+    {
+        errorMessage = null;
+        try
+        {
+            var report = BuildJournalExportData();
+            var workbook = JournalEntryExcelExporter.Create(report);
+            var entryNumber = glHeader.GLID > 0 ? glHeader.GLID.ToString() : "جديد";
+            await JS.InvokeVoidAsync(
+                "journalEntryExport.downloadBase64",
+                $"قيد_يومية_{entryNumber}.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                Convert.ToBase64String(workbook));
+            statusMessage = "تم تجهيز ملف Excel بنجاح.";
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex);
+            errorMessage = "تعذر تصدير القيد إلى Excel؛ حاول مرة أخرى أو راجع مسؤول النظام.";
+        }
+    }
+
+    private JournalEntryExportVm BuildJournalExportData()
+    {
+        var exportTransactions = IsInvoiceSource ? AccountingDirectionTransactions : transactions;
+        return new JournalEntryExportVm
+        {
+            CompanyLogo = settingsData.CompanyLogo,
+            PrintedBy = SessionService.CurrentUsername,
+            CompanyName = string.IsNullOrWhiteSpace(settingsData.CompanyName) ? "المنشأة" : settingsData.CompanyName,
+            CompanyAddress = settingsData.CompanyAddress,
+            CompanyPhone = settingsData.CompanyPhone,
+            CommercialRecord = settingsData.CommercialRecord,
+            TaxNumber = settingsData.TaxNumber,
+            EntryId = glHeader.GLID,
+            SerialNumber = glHeader.GLSN,
+            EntryDate = glHeader.GLDate,
+            Period = glHeader.PeriodID?.ToString() ?? settingsData.ActivePeriodName,
+            Source = GetSourceDisplay(),
+            Reference = glHeader.GLRef,
+            Description = glHeader.GLDesc,
+            Card = GetCardDisplay(),
+            Bank = GetBankDisplay(),
+            PaymentMethod = GetMethodDisplay(),
+            Center1 = GetCenter1Display(),
+            Center2 = GetCenter2Display(),
+            UserInfo = glHeader.Info,
+            IsArchived = glHeader.Archive ?? false,
+            Lines = exportTransactions.Select((transaction, index) => new JournalEntryExportLineVm
+            {
+                Number = index + 1,
+                AccountCode = GetAccountCode(transaction.ACCID),
+                AccountName = GetAccountName(transaction.ACCID),
+                Description = transaction.TransDesc,
+                Debit = transaction.DR ?? 0m,
+                Credit = transaction.CR ?? 0m,
+                DocumentReference = transaction.DocRef,
+                DocumentDate = transaction.DocDate,
+                Center = GetCenter3Display(transaction.Center3)
+            }).ToList()
+        };
+    }
+
+    private void RemoveTransaction(int index)
+    {
+        if (index >= 0 && index < transactions.Count)
+        {
+            transactions.RemoveAt(index);
+            if (IsInvoiceSource) SyncAccountingDirection();
+            tableColumnsInitialized = false;
+        }
+    }
+
+    private void RemoveDisplayedTransaction(int index)
+    {
+        if (IsInvoiceSource && !IsInvoiceDataTab)
+        {
+            if (index >= 0 && index < invoiceAccountingTransactions.Count)
+            {
+                invoiceAccountingTransactions.RemoveAt(index);
+                tableColumnsInitialized = false;
+            }
+            return;
+        }
+
+        RemoveTransaction(index);
+    }
+
+    private void MoveTransaction(int sourceIndex, int targetIndex)
+    {
+        if (sourceIndex < 0
+            || sourceIndex >= transactions.Count
+            || targetIndex < 0
+            || targetIndex >= transactions.Count
+            || sourceIndex == targetIndex)
+        {
+            return;
+        }
+
+        var transaction = transactions[sourceIndex];
+        transactions.RemoveAt(sourceIndex);
+        transactions.Insert(targetIndex, transaction);
+        if (IsInvoiceSource) SyncAccountingDirection();
+        tableColumnsInitialized = false;
+    }
+
+    private void MoveDisplayedTransaction(int sourceIndex, int targetIndex)
+    {
+        var displayedTransactions = IsInvoiceSource && !IsInvoiceDataTab
+            ? invoiceAccountingTransactions
+            : transactions;
+
+        if (sourceIndex < 0
+            || sourceIndex >= displayedTransactions.Count
+            || targetIndex < 0
+            || targetIndex >= displayedTransactions.Count
+            || sourceIndex == targetIndex)
+        {
+            return;
+        }
+
+        var transaction = displayedTransactions[sourceIndex];
+        displayedTransactions.RemoveAt(sourceIndex);
+        displayedTransactions.Insert(targetIndex, transaction);
+        tableColumnsInitialized = false;
+    }
+
+    private void OpenAccountPicker(int transactionIndex)
+    {
+        if (transactionIndex < 0 || transactionIndex >= transactions.Count)
+        {
+            return;
+        }
+
+        accountPickerTransactionIndex = transactionIndex;
+        accountPickerTargetsHeader = false;
+        accountPickerTargetsAccountingDirection = false;
+        accountSearchText = string.Empty;
+        showAccountPicker = true;
+    }
+
+    private void OpenHeaderAccountPicker()
+    {
+        accountPickerTransactionIndex = -1;
+        accountPickerTargetsHeader = true;
+        accountPickerTargetsAccountingDirection = false;
+        accountSearchText = string.Empty;
+        showAccountPicker = true;
+    }
+
+    private void OpenAccountingAccountPicker(int transactionIndex)
+    {
+        if (transactionIndex < 0 || transactionIndex >= invoiceAccountingTransactions.Count)
+        {
+            return;
+        }
+
+        accountPickerTransactionIndex = transactionIndex;
+        accountPickerTargetsHeader = false;
+        accountPickerTargetsAccountingDirection = true;
+        accountSearchText = string.Empty;
+        showAccountPicker = true;
+    }
+
+    private void CloseAccountPicker()
+    {
+        showAccountPicker = false;
+        accountPickerTransactionIndex = -1;
+        accountPickerTargetsHeader = false;
+        accountPickerTargetsAccountingDirection = false;
+        accountSearchText = string.Empty;
+    }
+
+    private void SelectAccount(long accountId)
+    {
+        if (accountPickerTargetsHeader)
+        {
+            glHeader.GLACC = accountId;
+            SyncAccountingDirection();
+        }
+        else if (accountPickerTargetsAccountingDirection
+                 && accountPickerTransactionIndex >= 0
+                 && accountPickerTransactionIndex < invoiceAccountingTransactions.Count)
+        {
+            invoiceAccountingTransactions[accountPickerTransactionIndex].ACCID = accountId;
+        }
+        else if (accountPickerTransactionIndex >= 0 && accountPickerTransactionIndex < transactions.Count)
+        {
+            transactions[accountPickerTransactionIndex].ACCID = accountId;
+            if (IsInvoiceSource) SyncAccountingDirection();
+        }
+
+        CloseAccountPicker();
+    }
+
+    private bool IsAccountSelected(long accountId)
+        => accountPickerTargetsHeader
+            ? glHeader.GLACC == accountId
+            : accountPickerTargetsAccountingDirection
+              ? accountPickerTransactionIndex >= 0
+                && accountPickerTransactionIndex < invoiceAccountingTransactions.Count
+                && invoiceAccountingTransactions[accountPickerTransactionIndex].ACCID == accountId
+            : accountPickerTransactionIndex >= 0
+              && accountPickerTransactionIndex < transactions.Count
+              && transactions[accountPickerTransactionIndex].ACCID == accountId;
+
+    private void OnAccountSearchInput(ChangeEventArgs e)
+    {
+        accountSearchText = e.Value?.ToString() ?? string.Empty;
+    }
+
+    private void ClearAccountSearch()
+    {
+        accountSearchText = string.Empty;
+    }
+
+    private void OpenLookupPicker(string lookupKind, int transactionIndex = -1)
+    {
+        activeLookupKind = lookupKind;
+        lookupTransactionIndex = transactionIndex;
+        lookupTargetsAccountingDirection = false;
+        lookupSearchText = string.Empty;
+        showLookupPicker = true;
+    }
+
+    private void OpenAccountingLookupPicker(string lookupKind, int transactionIndex)
+    {
+        if (transactionIndex < 0 || transactionIndex >= invoiceAccountingTransactions.Count)
+        {
+            return;
+        }
+
+        activeLookupKind = lookupKind;
+        lookupTransactionIndex = transactionIndex;
+        lookupTargetsAccountingDirection = true;
+        lookupSearchText = string.Empty;
+        showLookupPicker = true;
+    }
+
+    private void CloseLookupPicker()
+    {
+        showLookupPicker = false;
+        activeLookupKind = string.Empty;
+        lookupTransactionIndex = -1;
+        lookupTargetsAccountingDirection = false;
+        lookupSearchText = string.Empty;
+    }
+
+    private void OnLookupSearchInput(ChangeEventArgs e)
+    {
+        lookupSearchText = e.Value?.ToString() ?? string.Empty;
+    }
+
+    private void ClearLookupSearch()
+    {
+        lookupSearchText = string.Empty;
+    }
+
+    private List<FinancialPeriodOptionVm> copyPeriods = new();
+    private int copyPeriodId;
+
+    private async Task ChangeCopyPeriod(ChangeEventArgs e)
+    {
+        if (isLoadingPreviousEntries || !int.TryParse(e.Value?.ToString(), out var periodId)) return;
+        copyPeriodId = periodId;
+        previousEntries.Clear();
+        isLoadingPreviousEntries = true;
+        try { previousEntries = (await AccountingDataService.GetCopyableJournalEntriesAsync(copyPeriodId)).ToList(); }
+        catch { errorMessage = "تعذر تحميل قيود الفترة المحددة."; ClosePreviousEntryPicker(); }
+        finally { isLoadingPreviousEntries = false; }
+    }
+
+    private async Task OpenPreviousEntryPicker()
+    {
+        errorMessage = null;
+        statusMessage = null;
+        previousEntrySearchText = string.Empty;
+        showPreviousEntryPicker = true;
+        isLoadingPreviousEntries = true;
+
+        try
+        {
+            var periods = await AccountingDataService.GetFinancialPeriodsAsync();
+            var current = periods.FirstOrDefault(p => p.PeriodId == SessionService.SelectedPeriodId);
+            copyPeriods = periods.Where(p => p.PeriodId == SessionService.SelectedPeriodId
+                || (current?.StartDate is DateTime start && p.EndDate.HasValue && p.EndDate.Value < start)).ToList();
+            copyPeriodId = SessionService.SelectedPeriodId ?? 0;
+            previousEntries = (await AccountingDataService.GetCopyableJournalEntriesAsync(copyPeriodId)).ToList();
+        }
+        catch (Exception ex)
+        {
+            showPreviousEntryPicker = false;
+            System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex);
+            errorMessage = "تعذر تحميل القيود السابقة؛ حاول مرة أخرى أو راجع مسؤول النظام.";
+        }
+        finally
+        {
+            isLoadingPreviousEntries = false;
+        }
+    }
+
+    private void ClosePreviousEntryPicker()
+    {
+        showPreviousEntryPicker = false;
+        isLoadingPreviousEntries = false;
+        previousEntrySearchText = string.Empty;
+    }
+
+    private void OnPreviousEntrySearchInput(ChangeEventArgs e)
+    {
+        previousEntrySearchText = e.Value?.ToString() ?? string.Empty;
+    }
+
+    private void ClearPreviousEntrySearch()
+    {
+        previousEntrySearchText = string.Empty;
+    }
+
+    private async Task CopyPreviousEntry(int sourceGlid)
+    {
+        isLoadingPreviousEntries = true;
+        errorMessage = null;
+
+        try
+        {
+            var sourceEntry = await AccountingDataService.GetJournalEntryForCopyAsync(sourceGlid, copyPeriodId);
+            if (sourceEntry is null)
+            {
+                errorMessage = "القيد المحدد لم يعد موجوداً.";
+                ClosePreviousEntryPicker();
+                return;
+            }
+
+            glHeader.SourceID = sourceEntry.Header.SourceID;
+            if (IsDocumentSource || IsOpeningSource)
+            {
+                glHeader.SourceID = FixedSourceId;
+            }
+            glHeader.GLDesc = sourceEntry.Header.GLDesc;
+            glHeader.GLRef = sourceEntry.Header.GLRef;
+            glHeader.GLACC = sourceEntry.Header.GLACC;
+            glHeader.CardID = sourceEntry.Header.CardID;
+            glHeader.MethodID = sourceEntry.Header.MethodID;
+            glHeader.BankName = sourceEntry.Header.BankName;
+            glHeader.Center1 = sourceEntry.Header.Center1;
+            glHeader.Center2 = sourceEntry.Header.Center2;
+
+            var sourceTransactions = IsInvoiceSource
+                ? sourceEntry.Transactions.Where(IsInvoiceDetailRow)
+                : sourceEntry.Transactions;
+
+            transactions = sourceTransactions
+                .Select(transaction => new TransEntity
+                {
+                    GLID = glHeader.GLID > 0 ? glHeader.GLID : null,
+                    ACCID = transaction.ACCID,
+                    DR = transaction.DR ?? 0m,
+                    CR = transaction.CR ?? 0m,
+                    TransDesc = transaction.TransDesc,
+                    ItemCode = transaction.ItemCode,
+                    Amount = transaction.Amount,
+                    TaxRate = transaction.TaxRate,
+                    TaxAmount = transaction.TaxAmount,
+                    TotalAmount = transaction.TotalAmount,
+                    Qty = transaction.Qty,
+                    Unit = transaction.Unit,
+                    UnitPrice = transaction.UnitPrice,
+                    Discount = transaction.Discount,
+                    DocRef = transaction.DocRef,
+                    DocDate = transaction.DocDate,
+                    Center3 = transaction.Center3
+                })
+                .ToList();
+
+            NormalizeTransactionAmounts();
+            if (IsInvoiceSource)
+            {
+                SyncAccountingDirection();
+            }
+
+            if (transactions.Count == 0)
+            {
+                AddTransaction();
+                AddTransaction();
+            }
+
+            statusMessage = $"تم تحميل بيانات القيد رقم {sourceGlid}. راجع البيانات ثم احفظ القيد.";
+            ClosePreviousEntryPicker();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex);
+            errorMessage = "تعذر نسخ بيانات القيد؛ حاول مرة أخرى أو راجع مسؤول النظام.";
+            ClosePreviousEntryPicker();
+        }
+        finally
+        {
+            isLoadingPreviousEntries = false;
+        }
+    }
+
+    private IEnumerable<LookupItem> GetLookupItems()
+        => activeLookupKind switch
+        {
+            "source" => sources.Select(item => new LookupItem(item.SourceID, item.Source ?? $"مصدر {item.SourceID}", item.SourceCode ?? item.SourceID.ToString())),
+            "card" => cards.Select(item => new LookupItem(item.CardID, item.CardName ?? $"بطاقة {item.CardID}", (item.CardNum ?? item.CardID).ToString())),
+            "method" => methods.Select(item => new LookupItem(item.MethodID, item.MethodName ?? $"طريقة {item.MethodID}", item.MethodID.ToString())),
+            "bank" => banks.Select(item => new LookupItem(item.BankID, item.BankName ?? $"بنك {item.BankID}", item.BankID.ToString())),
+            "center1" => centers1.Select(item => new LookupItem(item.CenterID, item.CenterName ?? $"مركز {item.CenterID}", item.CenterID.ToString())),
+            "center2" => centers2.Select(item => new LookupItem(item.CenterID, item.CenterName ?? $"مركز {item.CenterID}", item.CenterID.ToString())),
+            "center3" => centers3.Select(item => new LookupItem(item.CenterID, item.CenterName ?? $"مركز فرعي {item.CenterID}", item.CenterID.ToString())),
+            "vat" => vatRates
+                .Where(item => item.TaxRate.HasValue)
+                .Select(item => new LookupItem(
+                    item.Id,
+                    $"{GetFlexibleDecimalValue(item.TaxRate)}%",
+                    GetFlexibleDecimalValue(item.TaxRate))),
+            _ => Enumerable.Empty<LookupItem>()
+        };
+
+    private void SelectLookupItem(int itemId)
+    {
+        switch (activeLookupKind)
+        {
+            case "source": glHeader.SourceID = itemId; break;
+            case "card": glHeader.CardID = itemId; break;
+            case "method": glHeader.MethodID = itemId; break;
+            case "bank":
+                glHeader.BankName = banks.FirstOrDefault(item => item.BankID == itemId)?.BankName;
+                break;
+            case "center1": glHeader.Center1 = itemId; break;
+            case "center2": glHeader.Center2 = itemId; break;
+            case "center3" when IsLookupTransactionValid():
+                GetLookupTransaction().Center3 = itemId;
+                if (!lookupTargetsAccountingDirection) SyncAccountingDirection();
+                break;
+            case "vat" when IsLookupTransactionValid():
+                transactions[lookupTransactionIndex].TaxRate = vatRates.FirstOrDefault(item => item.Id == itemId)?.TaxRate ?? GetDefaultVatRate();
+                RecalculateInvoiceAmounts(transactions[lookupTransactionIndex]);
+                SyncAccountingDirection();
+                break;
+        }
+
+        CloseLookupPicker();
+    }
+
+    private void ClearLookupSelection()
+    {
+        switch (activeLookupKind)
+        {
+            case "source": glHeader.SourceID = null; break;
+            case "card": glHeader.CardID = null; break;
+            case "method": glHeader.MethodID = null; break;
+            case "bank": glHeader.BankName = null; break;
+            case "center1": glHeader.Center1 = null; break;
+            case "center2": glHeader.Center2 = null; break;
+            case "center3" when IsLookupTransactionValid():
+                GetLookupTransaction().Center3 = null;
+                if (!lookupTargetsAccountingDirection) SyncAccountingDirection();
+                break;
+        }
+
+        CloseLookupPicker();
+    }
+
+    private bool IsLookupItemSelected(int itemId)
+        => activeLookupKind switch
+        {
+            "source" => glHeader.SourceID == itemId,
+            "card" => glHeader.CardID == itemId,
+            "method" => glHeader.MethodID == itemId,
+            "bank" => string.Equals(
+                glHeader.BankName,
+                banks.FirstOrDefault(item => item.BankID == itemId)?.BankName,
+                StringComparison.OrdinalIgnoreCase),
+            "center1" => glHeader.Center1 == itemId,
+            "center2" => glHeader.Center2 == itemId,
+            "center3" => IsLookupTransactionValid() && GetLookupTransaction().Center3 == itemId,
+            "vat" => IsLookupTransactionValid()
+                && vatRates.FirstOrDefault(item => item.Id == itemId)?.TaxRate == transactions[lookupTransactionIndex].TaxRate,
+            _ => false
+        };
+
+    private bool IsLookupTransactionValid()
+        => lookupTransactionIndex >= 0
+           && lookupTransactionIndex < (lookupTargetsAccountingDirection ? invoiceAccountingTransactions.Count : transactions.Count);
+
+    private TransEntity GetLookupTransaction()
+        => lookupTargetsAccountingDirection
+            ? invoiceAccountingTransactions[lookupTransactionIndex]
+            : transactions[lookupTransactionIndex];
+
+    private void OnItemCodeChanged(int index, ChangeEventArgs e)
+    {
+        if (index < 0 || index >= transactions.Count)
+        {
+            return;
+        }
+
+        var text = e.Value?.ToString()?.Trim();
+        transactions[index].ItemCode = string.IsNullOrWhiteSpace(text) ? null : text;
+        SyncAccountingDirection();
+    }
+
+    private void OnInvoiceDecimalChanged(int index, string field, ChangeEventArgs e)
+    {
+        if (index < 0 || index >= transactions.Count)
+        {
+            return;
+        }
+
+        var value = ParseNonNegativeDecimal(e.Value, field == "qty" ? 4 : 2);
+        var transaction = transactions[index];
+
+        switch (field)
+        {
+            case "amount": transaction.Amount = value; break;
+            case "qty": transaction.Qty = value; break;
+        }
+
+        RecalculateInvoiceAmounts(transaction);
+        SyncAccountingDirection();
+    }
+
+    private decimal GetDefaultVatRate()
+        => vatRates.FirstOrDefault(item => item.TaxRate == DefaultVatRate)?.TaxRate ?? DefaultVatRate;
+
+    private static void RecalculateInvoiceAmounts(TransEntity transaction)
+    {
+        var amount = transaction.Amount ?? 0m;
+        var taxRate = transaction.TaxRate ?? DefaultVatRate;
+        transaction.TaxAmount = decimal.Round(amount * taxRate / 100m, 2, MidpointRounding.AwayFromZero);
+        transaction.TotalAmount = decimal.Round(amount + transaction.TaxAmount.Value, 2, MidpointRounding.AwayFromZero);
+    }
+
+    private static bool IsInvoiceDetailRow(TransEntity transaction)
+        => !string.IsNullOrWhiteSpace(transaction.ItemCode)
+           || transaction.Amount.HasValue
+           || transaction.TaxRate.HasValue
+           || transaction.TaxAmount.HasValue
+           || transaction.TotalAmount.HasValue
+           || transaction.Qty.HasValue;
+
+    private List<TransEntity> BuildAccountingDirection()
+    {
+        if (!IsInvoiceSource)
+        {
+            return transactions;
+        }
+
+        var isSalesInvoice = FixedSourceId == 5;
+        var direction = new List<TransEntity>
+        {
+            new()
+            {
+                ACCID = glHeader.GLACC,
+                DR = isSalesInvoice ? invoiceGrandTotal : 0m,
+                CR = isSalesInvoice ? 0m : invoiceGrandTotal,
+                TransDesc = isSalesInvoice ? "إجمالي فاتورة المبيعات" : "إجمالي فاتورة المشتريات"
+            }
+        };
+
+        direction.AddRange(transactions.Select(line => new TransEntity
+        {
+            ACCID = line.ACCID,
+            DR = isSalesInvoice ? 0m : line.Amount ?? 0m,
+            CR = isSalesInvoice ? line.Amount ?? 0m : 0m,
+            TransDesc = line.TransDesc,
+            ItemCode = line.ItemCode,
+            Amount = line.Amount,
+            TaxRate = line.TaxRate,
+            TaxAmount = line.TaxAmount,
+            TotalAmount = line.TotalAmount,
+            Qty = line.Qty,
+            Unit = line.Unit,
+            UnitPrice = line.UnitPrice,
+            Discount = line.Discount,
+            DocRef = line.DocRef,
+            DocDate = line.DocDate,
+            Center3 = line.Center3
+        }));
+
+        direction.Add(new TransEntity
+        {
+            ACCID = GetInvoiceTaxAccountId(),
+            DR = isSalesInvoice ? 0m : invoiceTaxTotal,
+            CR = isSalesInvoice ? invoiceTaxTotal : 0m,
+            TransDesc = isSalesInvoice ? "ضريبة المبيعات" : "ضريبة المشتريات"
+        });
+
+        return direction;
+    }
+
+    private void SyncAccountingDirection()
+    {
+        if (IsInvoiceSource)
+        {
+            invoiceAccountingTransactions = BuildAccountingDirection();
+            tableColumnsInitialized = false;
+        }
+    }
+
+    private long? GetInvoiceTaxAccountId()
+    {
+        foreach (var line in transactions)
+        {
+            var vat = vatRates.FirstOrDefault(item => item.TaxRate == line.TaxRate);
+            var accountId = FixedSourceId == 5 ? vat?.SalesTaxACC : vat?.PurchTaxACC;
+            if (accountId.HasValue)
+            {
+                return accountId;
+            }
+        }
+
+        var fallbackVat = vatRates.FirstOrDefault(item => item.TaxRate == GetDefaultVatRate()) ?? vatRates.FirstOrDefault();
+        return FixedSourceId == 5 ? fallbackVat?.SalesTaxACC : fallbackVat?.PurchTaxACC;
+    }
+
+    private void OnDebitChange(int index, ChangeEventArgs e)
+    {
+        var debit = ParseDecimalOrZero(e.Value);
+        transactions[index].DR = debit;
+        if (debit > 0) transactions[index].CR = 0m;
+    }
+
+    private void OnDisplayedDebitChange(int index, ChangeEventArgs e)
+    {
+        var displayedTransactions = IsInvoiceSource ? invoiceAccountingTransactions : transactions;
+        var debit = ParseDecimalOrZero(e.Value);
+        displayedTransactions[index].DR = debit;
+        if (debit > 0) displayedTransactions[index].CR = 0m;
+    }
+
+    private void OnCreditChange(int index, ChangeEventArgs e)
+    {
+        var credit = ParseDecimalOrZero(e.Value);
+        transactions[index].CR = credit;
+        if (credit > 0) transactions[index].DR = 0m;
+    }
+
+    private void OnDisplayedCreditChange(int index, ChangeEventArgs e)
+    {
+        var displayedTransactions = IsInvoiceSource ? invoiceAccountingTransactions : transactions;
+        var credit = ParseDecimalOrZero(e.Value);
+        displayedTransactions[index].CR = credit;
+        if (credit > 0) displayedTransactions[index].DR = 0m;
+    }
+
+    private void OnDocumentDateChanged(int index, ChangeEventArgs e)
+    {
+        transactions[index].DocDate = DateTime.TryParse(e.Value?.ToString(), out var date) ? date : null;
+        if (IsInvoiceSource) SyncAccountingDirection();
+    }
+
+    private void OnDisplayedDocumentDateChanged(int index, ChangeEventArgs e)
+    {
+        var displayedTransactions = IsInvoiceSource ? invoiceAccountingTransactions : transactions;
+        displayedTransactions[index].DocDate = DateTime.TryParse(e.Value?.ToString(), out var date) ? date : null;
+    }
+
+    private void OpenDisplayedAccountPicker(int index)
+    {
+        if (IsInvoiceSource) OpenAccountingAccountPicker(index);
+        else OpenAccountPicker(index);
+    }
+
+    private void OpenDisplayedCenterPicker(int index)
+    {
+        if (IsInvoiceSource) OpenAccountingLookupPicker("center3", index);
+        else OpenLookupPicker("center3", index);
+    }
+
+    private void NormalizeTransactionAmounts()
+    {
+        foreach (var transaction in transactions)
+        {
+            transaction.DR ??= 0m;
+            transaction.CR ??= 0m;
+            if (IsInvoiceSource)
+            {
+                transaction.TaxRate ??= GetDefaultVatRate();
+                transaction.Amount ??= 0m;
+                RecalculateInvoiceAmounts(transaction);
+            }
+        }
+    }
+
+    private static decimal ParseDecimalOrZero(object? value)
+        => ParseNonNegativeDecimal(value, 2);
+
+    private static decimal ParseNonNegativeDecimal(object? value, int decimalPlaces)
+    {
+        var text = value?.ToString();
+        if (decimal.TryParse(text, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var invariantValue)
+            || decimal.TryParse(text, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.CurrentCulture, out invariantValue))
+        {
+            return Math.Max(0m, decimal.Round(invariantValue, decimalPlaces, MidpointRounding.AwayFromZero));
+        }
+
+        return 0m;
+    }
+
+    private bool CanSave()
+    {
+        if (isLoading || isImporting) return false;
+        if (transactions.Count == 0) return false;
+        if (totalDebit != totalCredit) return false;
+        if (IsInvoiceSource)
+        {
+            if (!glHeader.GLACC.HasValue) return false;
+            if (transactions.Any(t => !t.ACCID.HasValue)) return false;
+            if (invoiceAccountingTransactions.Count == 0 || invoiceAccountingTransactions.Any(t => !t.ACCID.HasValue)) return false;
+        }
+        else if (transactions.Any(t => !t.ACCID.HasValue)) return false;
+        if (selectedFinancialYear.HasValue && glHeader.GLDate.HasValue && glHeader.GLDate.Value.Year != selectedFinancialYear.Value) return false;
+        return true;
+    }
+
+    private async Task SaveEntry()
+    {
+        errorMessage = null;
+        statusMessage = null;
+        isLoading = true;
+
+        try
+        {
+            if (IsDocumentSource || IsOpeningSource)
+            {
+                glHeader.SourceID = FixedSourceId;
+            }
+
+            if (selectedFinancialYear.HasValue && glHeader.GLDate.HasValue && glHeader.GLDate.Value.Year != selectedFinancialYear.Value)
+            {
+                errorMessage = $"تاريخ القيد يجب أن يكون ضمن سنة الفترة المالية المحددة ({selectedFinancialYear.Value}).";
+                return;
+            }
+
+            var request = new JournalEntryUpsertVm
+            {
+                Header = glHeader,
+                Transactions = IsInvoiceSource ? AccountingDirectionTransactions : transactions
+            };
+
+            var result = await AccountingDataService.SaveJournalEntryAsync(request);
+
+            if (result.Success)
+            {
+                statusMessage = result.Message;
+
+                if (!GLID.HasValue && result.EntityId.HasValue)
+                {
+                    Navigation.NavigateTo(BuildEditorUrl(result.EntityId.Value), replace: true);
+                }
+            }
+            else
+            {
+                errorMessage = result.Message;
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("Page operation failed: {0}", ex);
+            errorMessage = "تعذر حفظ القيد؛ حاول مرة أخرى أو راجع مسؤول النظام.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void Cancel()
+    {
+        Navigation.NavigateTo(SafeReturnUrl);
+    }
+
+    private string BuildEditorUrl(long glid) => IsDocumentSource || IsOpeningSource
+        ? $"/accounting/journal-entry/{glid}?sourceId={FixedSourceId}&returnUrl={Uri.EscapeDataString(SafeReturnUrl)}"
+        : $"/accounting/journal-entry/{glid}";
+
+    private string SafeReturnUrl => !string.IsNullOrWhiteSpace(ReturnUrl)
+                                    && ReturnUrl.StartsWith('/')
+                                    && !ReturnUrl.StartsWith("//", StringComparison.Ordinal)
+        ? ReturnUrl
+        : "/accounting/journal-entries";
+
+    private void OnDateChanged(ChangeEventArgs e)
+    {
+        if (!DateTime.TryParse(e.Value?.ToString(), out var selectedDate))
+        {
+            return;
+        }
+
+        if (selectedFinancialYear.HasValue && selectedDate.Year != selectedFinancialYear.Value)
+        {
+            errorMessage = $"غير مسموح اختيار تاريخ خارج سنة الفترة المالية المحددة ({selectedFinancialYear.Value}).";
+            return;
+        }
+
+        errorMessage = null;
+        glHeader.GLDate = selectedDate;
+    }
+
+    private static string GetDateValue(DateTime? date)
+        => date.HasValue ? date.Value.ToString("yyyy-MM-dd") : string.Empty;
+
+    private static string GetDisplayDate(DateTime? date)
+        => date.HasValue ? date.Value.ToString("dd/MM/yyyy") : "بدون تاريخ";
+
+    private static string GetDecimalValue(decimal? value)
+        => (value ?? 0m).ToString("N2", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string GetFlexibleDecimalValue(decimal? value)
+        => (value ?? 0m).ToString("0.####", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string GetTaxRateDisplay(decimal? value)
+        => $"{GetFlexibleDecimalValue(value ?? DefaultVatRate)}%";
+
+    private string GetAccountCode(long? accountId)
+        => accountId?.ToString() ?? "—";
+
+    private string GetAccountName(long? accountId)
+        => accountId.HasValue
+            ? accounts.FirstOrDefault(account => account.ACCID == accountId.Value)?.Name ?? $"حساب {accountId.Value}"
+            : "ابحث عن الحساب";
+
+    private string GetHeaderAccountDisplay()
+        => glHeader.GLACC.HasValue
+            ? accounts.FirstOrDefault(account => account.ACCID == glHeader.GLACC.Value)?.Name ?? $"حساب {glHeader.GLACC.Value}"
+            : FixedSourceId == 5 ? "ابحث عن الحساب المدين" : "ابحث عن الحساب الدائن";
+
+    private string GetSourceDisplay()
+        => glHeader.SourceID.HasValue
+            ? sources.FirstOrDefault(item => item.SourceID == glHeader.SourceID.Value)?.Source ?? $"مصدر {glHeader.SourceID.Value}"
+            : "ابحث عن المصدر";
+
+    private string GetCardDisplay()
+        => glHeader.CardID.HasValue
+            ? cards.FirstOrDefault(item => item.CardID == glHeader.CardID.Value)?.CardName ?? $"بطاقة {glHeader.CardID.Value}"
+            : "ابحث عن البطاقة أو العميل";
+
+    private string GetMethodDisplay()
+        => glHeader.MethodID.HasValue
+            ? methods.FirstOrDefault(item => item.MethodID == glHeader.MethodID.Value)?.MethodName ?? $"طريقة {glHeader.MethodID.Value}"
+            : "ابحث عن طريقة الدفع";
+
+    private string GetBankDisplay()
+        => string.IsNullOrWhiteSpace(glHeader.BankName) ? "ابحث عن البنك" : glHeader.BankName;
+
+    private string GetCenter1Display()
+        => glHeader.Center1.HasValue
+            ? centers1.FirstOrDefault(item => item.CenterID == glHeader.Center1.Value)?.CenterName ?? $"مركز {glHeader.Center1.Value}"
+            : "ابحث عن مركز 1";
+
+    private string GetCenter2Display()
+        => glHeader.Center2.HasValue
+            ? centers2.FirstOrDefault(item => item.CenterID == glHeader.Center2.Value)?.CenterName ?? $"مركز {glHeader.Center2.Value}"
+            : "ابحث عن مركز 2";
+
+    private string GetCenter3Display(int? centerId)
+        => centerId.HasValue
+            ? centers3.FirstOrDefault(item => item.CenterID == centerId.Value)?.CenterName ?? $"مركز فرعي {centerId.Value}"
+            : "ابحث عن مركز";
+
+    private sealed record LookupItem(int Id, string Name, string Code);
+}

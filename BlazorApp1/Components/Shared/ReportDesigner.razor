@@ -1,0 +1,111 @@
+@page "/accounting/settings/report-designer"
+@page "/accounting/report-designer"
+@layout BlazorApp1.Components.Layout.AccountingLayout
+@using BlazorApp1.Services
+@inject ReportDesignService Designs
+@inject IAccountingDataService Accounting
+@inject ISessionService Session
+@inject IJSRuntime JS
+
+<PageTitle>مصمم التقارير - النظام المحاسبي</PageTitle>
+<section class="report-designer" dir="rtl">
+    <div class="designer-heading"><div><h3><i class="bi bi-palette"></i> مصمم التقارير</h3><p>المنشأة المرتبطة: <strong>@Session.SelectedCompanyName</strong></p></div><span class="badge bg-primary">A4 بالطول</span></div>
+    <p class="designer-help">اختر المطبوعة، عدّل الصفحة وعناصرها، ثم احفظ التصميم للمنشأة الحالية. تظهر تعديلاتك تلقائيًا في المعاينة ببيانات تجريبية.</p>
+    @if (message is not null) { <div class="alert alert-info" role="status">@message</div> }
+    @if (error is not null) { <div class="alert alert-danger" role="alert">@error</div> }
+    <div class="designer-toolbar">
+        <label>نوع المطبوعة<select class="form-select" @bind="selectedKind" disabled="@busy">@foreach (var kind in ReportDesignService.Kinds) { <option value="@kind.Key">@kind.Value</option> }</select></label>
+        <button class="btn btn-outline-primary" @onclick="() => Load(false)" disabled="@busy">تحميل التصميم</button>
+        @if (dirty) { <button class="btn btn-outline-secondary" @onclick="() => Load(true)" disabled="@busy">تجاهل التغييرات وتحميل</button> }
+    </div>
+    @if (design is not null)
+    {
+        <div class="designer-actions">
+            <div class="designer-status"><strong>@ReportDesignService.Kinds[design.Kind]</strong><span>@(dirty ? "تغييرات غير محفوظة" : "التصميم المحمّل")</span></div>
+            <button class="btn btn-primary" @onclick="Save" disabled="@busy">حفظ واعتماد للمنشأة</button>
+            <button class="btn btn-outline-secondary" @onclick="Preview" disabled="@busy">تحديث المعاينة</button>
+            <button class="btn btn-outline-primary" @onclick="Print" disabled="@(busy || !previewReady)">معاينة PDF / طباعة تجريبية</button>
+        </div>
+        <div class="designer-grid">
+            <div class="designer-controls">
+                <fieldset disabled="@busy">
+                    <legend>إعدادات الصفحة</legend>
+                    <label>اسم التصميم<input class="form-control" maxlength="100" @bind="design.Name" @bind:after="Changed" /></label>
+                    <div class="designer-pair">
+                        <label>حجم خط البيانات<input type="number" class="form-control" min="9" max="16" @bind="design.FontSize" @bind:after="Changed" /></label>
+                        <label>الهامش (مم)<input type="number" class="form-control" min="8" max="22" @bind="design.Margin" @bind:after="Changed" /></label>
+                    </div>
+                    <label>لون الجداول والفواصل<input type="color" class="form-control form-control-color" @bind="design.Accent" @bind:after="Changed" /></label>
+                    <button class="btn btn-sm btn-light designer-reset" @onclick="Reset" disabled="@busy">استعادة التصميم الافتراضي</button>
+                </fieldset>
+                <fieldset disabled="@busy">
+                    <legend>عناصر التقرير</legend>
+                    <div class="designer-add">
+                        @foreach (var kind in elementKinds) { <button class="btn btn-sm btn-outline-primary" @onclick="() => Add(kind.Key)">+ @kind.Value</button> }
+                    </div>
+                    @foreach (var element in design.Elements)
+                    {
+                        <details class="designer-element" @key="element.Id">
+                            <summary>@elementKinds[element.Kind]<span>@zones[element.Zone]</span></summary>
+                            <div class="designer-element-heading"><strong>@elementKinds[element.Kind]</strong><div><button class="btn btn-sm btn-light" aria-label="نقل العنصر للأعلى" disabled="@(design.Elements.IndexOf(element) == 0)" @onclick="() => Move(element, -1)">↑</button><button class="btn btn-sm btn-light" aria-label="نقل العنصر للأسفل" disabled="@(design.Elements.IndexOf(element) == design.Elements.Count - 1)" @onclick="() => Move(element, 1)">↓</button><button class="btn btn-sm btn-outline-danger" @onclick="() => Remove(element)">حذف</button></div></div>
+                            <label>الموضع<select class="form-select" @bind="element.Zone" @bind:after="Changed">@foreach (var zone in zones) { <option value="@zone.Key">@zone.Value</option> }</select></label>
+                            @if (element.Kind == "field") { <label>ربط ببيانات السجل<select class="form-select" @bind="element.Field" @bind:after="Changed">@foreach (var field in ReportDesignService.Fields) { <option value="@field.Key">@field.Value</option> }</select></label> }
+                            @if (element.Kind is "text" or "field")
+                            {
+                                <label>@(element.Kind == "field" ? "تسمية قبل القيمة" : "النص")<textarea class="form-control" rows="2" maxlength="500" @bind="element.Text" @bind:after="Changed"></textarea></label>
+                                <div class="designer-pair"><label>حجم الخط<input class="form-control" type="number" min="9" max="24" @bind="element.FontSize" @bind:after="Changed" /></label><label>اللون<input type="color" class="form-control form-control-color" @bind="element.Color" @bind:after="Changed" /></label></div>
+                                <label><input type="checkbox" @bind="element.Bold" @bind:after="Changed" /> خط عريض</label>
+                            }
+                            @if (element.Kind == "logo") { <small>يستخدم شعار المنشأة المحفوظ في بيانات المنشأة.</small> }
+                            <label>المحاذاة<select class="form-select" @bind="element.Align" @bind:after="Changed"><option value="right">يمين</option><option value="center">وسط</option><option value="left">يسار</option></select></label>
+                        </details>
+                    }
+                </fieldset>
+            </div>
+            <div class="designer-preview"><div class="designer-preview-caption">معاينة ببيانات تجريبية • @design.Name</div><iframe @ref="frame" title="معاينة تصميم التقرير" sandbox="allow-same-origin allow-modals" srcdoc="@previewHtml" @onload="() => previewReady = true"></iframe></div>
+        </div>
+    }
+</section>
+
+@code {
+    private static readonly Dictionary<string,string> elementKinds = new() { ["text"] = "نص", ["field"] = "حقل بيانات", ["logo"] = "شعار المنشأة", ["line"] = "فاصل" };
+    private static readonly Dictionary<string,string> zones = new() { ["header"] = "رأس كل صفحة", ["before"] = "قبل بيانات السجل", ["after"] = "بعد بيانات السجل", ["footer"] = "تذييل كل صفحة" };
+    private string selectedKind = "journal";
+    private ReportDesign? design;
+    private SettingsDataVm? company;
+    private string? previewHtml, message, error;
+    private bool busy, dirty, previewReady;
+    private ElementReference frame;
+    protected override async Task OnInitializedAsync() => await Load(false);
+    private async Task Load(bool discard)
+    {
+        if (dirty && !discard) { message = "احفظ التغييرات أولاً أو اختر تجاهل التغييرات وتحميل."; return; }
+        busy = true; error = message = null;
+        try { design = await Designs.EditAsync(selectedKind); company = await Accounting.GetSettingsDataAsync(); dirty = false; await Preview(); }
+        catch (Exception ex) { error = ex is UnauthorizedAccessException ? "لا تملك صلاحية مصمم التقارير." : "تعذر تحميل التصميم. حاول مجددًا."; }
+        finally { busy = false; }
+    }
+    private async Task Changed() { dirty = true; message = null; await Preview(); }
+    private async Task Add(string kind) { if (design is null) return; design.Elements.Add(new() { Kind = kind, Text = kind == "text" ? "نص جديد" : "" }); await Changed(); }
+    private async Task Remove(ReportElement element) { design!.Elements.Remove(element); await Changed(); }
+    private async Task Move(ReportElement element, int offset) { var index = design!.Elements.IndexOf(element); var target = index + offset; if (target < 0 || target >= design.Elements.Count) return; design.Elements.RemoveAt(index); design.Elements.Insert(target, element); await Changed(); }
+    private async Task Reset() { if (design is null) return; var revision = design.Revision; var companyKey = design.CompanyKey; design = ReportDesign.Default(design.Kind); design.Revision = revision; design.CompanyKey = companyKey; await Changed(); }
+    private async Task Preview()
+    {
+        if (design is null || company is null) return;
+        previewReady = false;
+        try { ReportDesignService.Validate(design); previewHtml = await JS.InvokeAsync<string>("reportDesigner.preview", design, company, Session.CurrentUsername); error = null; }
+        catch (InvalidOperationException) { /* JS becomes available after the initial render. */ }
+        catch (ArgumentException ex) { error = ex.Message; }
+        catch { error = "تعذر تحديث المعاينة."; }
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender) { if (firstRender && design is not null) { await Preview(); StateHasChanged(); } }
+    private async Task Save()
+    {
+        if (design is null) return; busy = true; error = null;
+        try { design.Revision = await Designs.SaveAsync(design); dirty = false; message = "تم اعتماد التصميم لمطبوعات المنشأة الحالية."; }
+        catch (Exception ex) { error = ex is ArgumentException or InvalidOperationException ? ex.Message : "تعذر حفظ التصميم؛ تحقق من الصلاحية وحاول مجددًا."; }
+        finally { busy = false; }
+    }
+    private async Task Print() { try { await JS.InvokeVoidAsync("journalEntryExport.printPreview", frame); } catch { error = "تعذر فتح نافذة الطباعة."; } }
+}

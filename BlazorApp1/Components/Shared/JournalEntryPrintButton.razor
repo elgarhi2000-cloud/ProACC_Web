@@ -1,0 +1,58 @@
+@inject ReportDesignService Designs
+@using BlazorApp1.Services
+@inject IAccountingDataService AccountingDataService
+@inject IJSRuntime JS
+
+<button type="button" class="journal-row-print" title="معاينة وطباعة القيد" aria-label="@($"معاينة وطباعة القيد {EntryId}")" disabled="@busy" @onclick="Preview">
+    <i class="bi @(busy ? "bi-hourglass-split" : "bi-printer")" aria-hidden="true"></i>
+</button>
+@if (error is not null && !showPreview) { <small class="text-danger d-block" role="alert">@error</small> }
+@if (showPreview)
+{
+    <div class="journal-preview-overlay" role="dialog" aria-modal="true" aria-labelledby="@titleId" dir="rtl">
+        <section class="journal-preview-card">
+            <header>
+                <div><h5 id="@titleId">معاينة القيد رقم @EntryId</h5><small>راجع بيانات القيد قبل الطباعة</small></div>
+                <div class="journal-preview-actions">
+                    <button type="button" class="btn btn-primary" disabled="@(busy || !frameReady)" @onclick="Print"><i class="bi bi-printer" aria-hidden="true"></i> طباعة</button>
+                    <button type="button" class="btn btn-light" disabled="@busy" @onclick="Close">إغلاق</button>
+                </div>
+            </header>
+            @if (error is not null) { <div class="alert alert-danger m-2" role="alert">@error</div> }
+            <iframe @ref="frame" title="@($"معاينة تفاصيل القيد {EntryId}")" srcdoc="@documentHtml" @onload="() => frameReady = true"></iframe>
+        </section>
+    </div>
+}
+
+@code {
+    [Parameter] public int EntryId { get; set; }
+    [Parameter] public string DesignKind { get; set; } = "journal";
+    private readonly string titleId = "journal-preview-" + Guid.NewGuid().ToString("N");
+    private bool busy, showPreview, frameReady;
+    private string? error, documentHtml;
+    private ElementReference frame;
+    private async Task Preview()
+    {
+        if (busy) return;
+        busy = true; error = null;
+        try
+        {
+            var report = await AccountingDataService.GetSavedJournalExportAsync(EntryId);
+            if (report is null) { error = "القيد غير موجود. حدّث السجلات."; return; }
+            report.Design = await Designs.ForPrintAsync(DesignKind);
+            documentHtml = await JS.InvokeAsync<string>("journalEntryExport.previewDocument", report);
+            frameReady = false; showPreview = true;
+        }
+        catch { error = "تعذر تحميل معاينة القيد. حاول مجدداً."; }
+        finally { busy = false; }
+    }
+    private async Task Print()
+    {
+        if (busy || !frameReady) return;
+        busy = true; error = null;
+        try { await JS.InvokeVoidAsync("journalEntryExport.printPreview", frame); }
+        catch { error = "تعذر فتح نافذة الطباعة. حاول مجدداً."; }
+        finally { busy = false; }
+    }
+    private void Close() { showPreview = false; documentHtml = null; error = null; frameReady = false; }
+}

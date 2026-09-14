@@ -1,0 +1,356 @@
+@inject ReportDesignService Designs
+@inject ISessionService PrintSession
+@page "/accounting/chart-of-accounts"
+@layout BlazorApp1.Components.Layout.AccountingLayout
+@using BlazorApp1.Components.Shared
+@using BlazorApp1.Services
+@using Microsoft.JSInterop
+@inject IAccountingDataService AccountingDataService
+@inject IJSRuntime JS
+
+<PageTitle>دليل الحسابات - النظام المحاسبي</PageTitle>
+<div class="page-content" dir="rtl">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+        <div><h3 class="mb-1">دليل الحسابات</h3><p class="text-muted mb-0">ابحث عن الحساب، أو افتح فرعاً لإضافة حساب تحته.</p></div>
+        <div class="d-flex gap-2 align-items-center flex-wrap">
+            <span class="badge bg-primary">@rootNodes.Count جذور</span>
+            <span class="badge bg-success">@AllNodes.Count(x => x.Node.IsAccountLeaf) حساب</span>
+            <button class="btn btn-sm btn-outline-danger" disabled="@(busy || isLoading)" @onclick="ExportPdfAsync">تصدير PDF</button>
+            <button class="btn btn-sm btn-outline-success" disabled="@(busy || isLoading)" @onclick="ExportExcelAsync">تصدير Excel</button>
+            <button class="btn btn-sm btn-outline-primary" @onclick="() => manualExpandAll = !manualExpandAll">@(manualExpandAll ? "طي الشجرة" : "توسيع الشجرة")</button>
+            <button class="btn btn-sm btn-primary" disabled="@(busy || isLoading)" @onclick="() => OpenCreate(null)">إضافة حساب</button>
+        </div>
+    </div>
+    @if (!string.IsNullOrWhiteSpace(message)) { <div class="alert @(messageError ? "alert-danger" : "alert-success")" role="status">@message</div> }
+    @if (isLoading) { <div class="alert alert-info">جاري تحميل شجرة الحسابات...</div> }
+    else
+    {
+        <div class="card">
+            <div class="card-header"><h5 class="mb-0">الحسابات</h5><small>6 مستويات · اضغط السهم لفتح الفرع</small></div>
+            <div class="card-body chart-tree-body">
+                <label for="treeSearch" class="form-label">البحث في الشجرة</label>
+                <input aria-label="البحث في دليل الحسابات" id="treeSearch" class="form-control mb-3" @bind="searchTerm" @bind:event="oninput" @bind:after="ApplySearch" placeholder="ابحث برقم الحساب أو الاسم أو المستوى" />
+                @if (displayNodes.Count == 0)
+                {
+                    <div class="chart-empty"><h5>@(string.IsNullOrWhiteSpace(searchTerm) ? "ابدأ بإضافة حساب" : "لا توجد نتائج مطابقة")</h5>
+                        <p>ابحث بالاسم أو رقم الحساب، أو أضف حساباً جديداً.</p>
+                        @if (!string.IsNullOrWhiteSpace(searchTerm)) { <button class="btn btn-light" @onclick="ClearSearch">مسح البحث</button> }
+                    </div>
+                }
+                @foreach (var node in displayNodes)
+                {
+                    <ChartTreeNode @key="node.Key" Node="node" SearchTerm="searchTerm" ExpandAll="(manualExpandAll || !string.IsNullOrWhiteSpace(searchTerm))"
+                        Disabled="busy" OnAddAccountRequested="OpenCreate" OnEditNodeRequested="OpenEdit" OnDeleteAccountRequested="OpenDelete" />
+                }
+            </div>
+        </div>
+    }
+    @if (showEditor)
+    {
+        <div class="crud-overlay" role="dialog" aria-modal="true" aria-labelledby="editorTitle">
+            <div class="crud-card">
+                <div class="crud-header"><h5 id="editorTitle">@(form.OriginalId.HasValue ? "تعديل الحساب" : "إضافة حساب") — المستوى @form.Level</h5><button aria-label="إغلاق" class="btn btn-light" disabled="@(busy || isLoading)" @onclick="() => showEditor = false">×</button></div>
+                <div class="crud-body">
+                    @if (!form.OriginalId.HasValue && allowLevelChoice)
+                    {
+                        <label class="form-label">المستوى</label>
+                        <div class="d-flex gap-2 flex-wrap mb-3">
+                            @for (var i = 1; i <= 6; i++)
+                            {
+                                var level = i;
+                                <button class="btn btn-sm @(form.Level == level ? "btn-primary" : "btn-outline-primary")" disabled="@(busy || isLoading)" @onclick="() => ChangeLevel(level)">المستوى @level</button>
+                            }
+                        </div>
+                    }
+                    <label for="accountNumber" class="form-label">رقم الحساب</label>
+                    <input id="accountNumber" type="number" min="1" step="1" class="form-control mb-3" @bind="form.Number" disabled="@(busy || isLoading)" />
+                    <label for="accountName" class="form-label">اسم الحساب</label>
+                    <input id="accountName" maxlength="100" class="form-control mb-3" @bind="form.Name" disabled="@(busy || isLoading)" />
+                    <ChartGroupSearch Label="@(form.Level == 1 ? "القائمة المالية" : "الحساب الرئيسي")" InputId="parentSearch"
+                        Options="EligibleParents.ToList()" Value="ParentValue" ValueChanged="SetParent" Disabled="busy" AllowClear="false" />
+                    @if (form.Level == 6)
+                    {
+                        <div class="d-flex gap-4 flex-wrap mt-3 mb-3">
+                            <label class="account-option"><span>تمثيل بياني</span><input type="checkbox" @bind="form.Chart" disabled="@(busy || isLoading)" /></label>
+                            <label class="account-option"><span>نشط</span><input type="checkbox" @bind="form.Active" disabled="@(busy || isLoading)" /></label>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-md-6"><ChartGroupSearch Label="تصنيف 1" InputId="group1Search" Options="groups1" @bind-Value="form.Group1" Disabled="busy" /></div>
+                            <div class="col-md-6"><ChartGroupSearch Label="تصنيف 2" InputId="group2Search" Options="groups2" @bind-Value="form.Group2" Disabled="busy" /></div>
+                        </div>
+                    }
+                    @if (!string.IsNullOrEmpty(editorMessage)) { <div class="alert alert-warning mt-3" role="alert">@editorMessage</div> }
+                </div>
+                <div class="crud-footer"><button class="btn btn-light" disabled="@(busy || isLoading)" @onclick="() => showEditor = false">إلغاء</button><button class="btn btn-primary" disabled="@(busy || isLoading)" @onclick="SaveAsync">@(busy ? "جاري الحفظ..." : "حفظ الحساب")</button></div>
+            </div>
+        </div>
+    }
+    @if (deleteNode is not null)
+    {
+        <div class="crud-overlay" role="dialog" aria-modal="true" aria-labelledby="deleteTitle"><div class="crud-card">
+            <div class="crud-header"><h5 id="deleteTitle">تأكيد حذف الحساب</h5></div>
+            <div class="crud-body"><strong>@deleteNode.DisplayNumber — @deleteNode.Name</strong><p>سيُحذف هذا الحساب إذا لم تكن له فروع أو بيانات مرتبطة.</p>
+                @if (!string.IsNullOrEmpty(editorMessage)) { <div class="alert alert-warning">@editorMessage</div> }
+            </div>
+            <div class="crud-footer"><button class="btn btn-light" disabled="@(busy || isLoading)" @onclick="() => deleteNode = null">إلغاء</button><button class="btn btn-danger" disabled="@(busy || isLoading || AllNodes.First(x => x.Node.Key == deleteNode.Key).Node.Children.Count > 0)" @onclick="DeleteAsync">@(busy ? "جاري الحذف..." : "حذف الحساب")</button></div>
+        </div></div>
+    }
+</div>
+<style>
+    .chart-tree-body { background: #fff; }
+    .chart-empty { text-align: center; padding: 36px 16px; color: #64748b; }
+    .chart-node { border-bottom: 1px solid #edf0f5; }
+    .chart-row { display: flex; align-items: center; gap: 10px; min-height: 58px; padding: 8px 10px; border-radius: 8px; }
+    .chart-row:hover { background: #f8f9fd; }
+    .node-toggle { width: 30px; height: 30px; border: 0; border-radius: 6px; background: #f1f3fa; color: #5948d6; flex-shrink: 0; }
+    .node-toggle-placeholder { width: 30px; flex-shrink: 0; text-align: center; color: #94a3b8; }
+    .node-content { flex: 1; min-width: 0; }
+    .node-name { font-weight: 600; color: #24324a; }
+    .node-account-icon { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; flex-shrink: 0; border-radius: 8px; color: #5948d6; background: #eeebff; font-size: 1rem; }
+    .node-meta { display: flex; flex-wrap: wrap; gap: 10px; font-size: .76rem; color: #7c879b; margin-top: 3px; }
+    .node-code { direction: ltr; unicode-bidi: isolate; color: #5948d6; font-weight: 600; }
+    .node-children { margin-inline-start: 16px; padding-inline-start: 8px; border-inline-start: 1px solid #e3e8f3; }
+    .node-actions { display: flex; gap: 5px; flex-shrink: 0; }
+    .node-actions button { padding: 6px 8px; font-size: .8rem; }
+    .node-match { background: #fff4c2; border-radius: 3px; }
+    .crud-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.45); display: flex; align-items: center; justify-content: center; z-index: 3000; padding: 12px; }
+    .crud-card { width: min(620px, 100%); max-height: 92vh; background: #fff; border-radius: 16px; box-shadow: 0 20px 45px rgba(15,23,42,.2); display: flex; flex-direction: column; overflow: hidden; }
+    .crud-header { padding: 18px 22px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #edf0f5; color: #27334a; }
+    .crud-header h5 { font-size: 1.05rem; margin: 0; }
+    .crud-body { padding: 20px 22px; overflow-y: auto; }
+    .crud-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 22px; border-top: 1px solid #edf0f5; background: #fafbfe; }
+    .account-option { display: inline-flex; direction: rtl; align-items: center; gap: 8px; cursor: pointer; }
+    .account-option input { margin: 0; float: none; width: 16px; height: 16px; accent-color: #5948d6; }
+    .parent-results { max-height: 260px; overflow-y: auto; border: 1px solid #dce4ff; border-radius: 8px; margin-top: 8px; }
+    .parent-result { width: 100%; text-align: right; border: 0; border-bottom: 1px solid #edf0f7; background: white; padding: 10px 12px; color: #334155; }
+    .parent-result:hover, .parent-result.selected { background: #eef2ff; color: #4338ca; }
+    .parent-result:focus-visible { outline: 2px solid #4f46e5; outline-offset: -2px; }
+    @@media(max-width:600px) { .node-children { margin-inline-start: 5px; padding-inline-start: 4px; } .chart-row { flex-wrap: wrap; gap: 6px; } .node-actions { margin-inline-start: 36px; } .crud-body { padding: 16px; } }
+</style>
+@code {
+    private List<ChartTreeNodeVm> rootNodes = new(), displayNodes = new();
+    private IReadOnlyList<ChartParentOptionVm> directions = Array.Empty<ChartParentOptionVm>();
+    private IReadOnlyList<ChartParentOptionVm> groups1 = Array.Empty<ChartParentOptionVm>(), groups2 = Array.Empty<ChartParentOptionVm>();
+    private bool busy, isLoading, showEditor, manualExpandAll, messageError, allowLevelChoice;
+    private string searchTerm = "", message = "", editorMessage = "";
+    private ChartEditVm form = new();
+    private ChartTreeNodeVm? deleteNode;
+    private sealed record TreeRow(ChartTreeNodeVm Node, int Level, long? ParentId, string Path);
+    private static IEnumerable<TreeRow> Flatten(IEnumerable<ChartTreeNodeVm> nodes, int level = 1, long? parent = null, string path = "")
+    {
+        foreach (var node in nodes)
+        {
+            var fullPath = string.IsNullOrEmpty(path) ? $"{node.DisplayNumber} — {node.Name}" : $"{path} / {node.DisplayNumber} — {node.Name}";
+            yield return new(node, level, parent, fullPath);
+            foreach (var child in Flatten(node.Children, level + 1, long.Parse(node.DisplayNumber), fullPath)) yield return child;
+        }
+    }
+    private List<TreeRow> AllNodes = new();
+    private IEnumerable<ChartParentOptionVm> EligibleParents => form.Level == 1 ? directions :
+        AllNodes.Where(x => x.Level == form.Level - 1).Select(x => new ChartParentOptionVm(long.Parse(x.Node.DisplayNumber), x.Node.Name, x.Path));
+    private int? ParentValue => form.ParentId.HasValue ? checked((int)form.ParentId.Value) : null;
+    private void SetParent(int? value)
+    {
+        if (form.ParentId == value) return;
+        form.ParentId = value;
+        if (!form.OriginalId.HasValue) SuggestAccountNumber();
+    }
+
+    private void SuggestAccountNumber()
+    {
+        if (form.Level == 1 || !form.ParentId.HasValue) return;
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        var prefix = form.ParentId.Value.ToString(culture);
+        var numbers = AllNodes.Where(x => x.Level == form.Level)
+            .Select(x => long.Parse(x.Node.DisplayNumber)).ToHashSet();
+        var suffixes = AllNodes.Where(x => x.Level == form.Level && x.ParentId == form.ParentId)
+            .Select(x => x.Node.DisplayNumber)
+            .Where(x => x.Length > prefix.Length && x.StartsWith(prefix, StringComparison.Ordinal))
+            .Select(x => x[prefix.Length..]).ToList();
+        var width = suffixes.Select(x => x.Length).DefaultIfEmpty(1).Max();
+        var next = suffixes.Select(x => decimal.Parse(x, culture)).DefaultIfEmpty(0).Max() + 1;
+        var limit = form.Level == 6 ? long.MaxValue : int.MaxValue;
+        // Increment the suffix separately so carrying never changes the parent's prefix.
+        while (long.TryParse(prefix + next.ToString(culture).PadLeft(width, '0'), out var candidate)
+            && candidate <= limit)
+        {
+            if (!numbers.Contains(candidate)) { form.Number = candidate; return; }
+            next++;
+        }
+        form.Number = null;
+    }
+    private void ClearSearch() { searchTerm = ""; ApplySearch(); }
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+    private async Task ReloadAsync()
+    {
+        isLoading = true;
+        try
+        {
+            rootNodes = SortTreeByAccountNumber(await AccountingDataService.GetChartOfAccountsTreeAsync());
+            AllNodes = Flatten(rootNodes).ToList();
+            directions = await AccountingDataService.GetChartDirectionsAsync();
+            groups1 = await AccountingDataService.GetChartGroupsAsync(1);
+            groups2 = await AccountingDataService.GetChartGroupsAsync(2);
+            ApplySearch();
+        }
+        catch { messageError = true; message = "تعذر تحميل دليل الحسابات. تحقق من اتصال قاعدة بيانات المنشأة ثم أعد فتح الصفحة."; }
+        finally { isLoading = false; }
+    }
+    private void ApplySearch() => displayNodes = string.IsNullOrWhiteSpace(searchTerm) ? rootNodes :
+        rootNodes.Select(x => FilterTree(x, searchTerm.Trim())).OfType<ChartTreeNodeVm>().ToList();
+    private void ChangeLevel(int level)
+    {
+        form.Level = level; form.ParentId = null;
+        var max = AllNodes.Where(x => x.Level == level).Select(x => long.Parse(x.Node.DisplayNumber)).DefaultIfEmpty(0).Max();
+        form.Number = max < (level == 6 ? long.MaxValue : int.MaxValue) ? max + 1 : null;
+    }
+    private void OpenCreate(ChartTreeNodeVm? node)
+    {
+        if (busy || isLoading) return;
+        form = new(); editorMessage = ""; allowLevelChoice = node is null;
+        var row = node is null ? null : AllNodes.First(x => x.Node.Key == node.Key);
+        ChangeLevel(row is null ? (rootNodes.Count == 0 ? 1 : 6) : Math.Min(row.Level + 1, 6));
+        if (row is not null) form.ParentId = row.Level == 6 ? row.ParentId : long.Parse(row.Node.DisplayNumber);
+        SuggestAccountNumber();
+        showEditor = true;
+    }
+    private async Task OpenEdit(ChartTreeNodeVm node)
+    {
+        if (busy || isLoading) return;
+        busy = true;
+        try
+        {
+            var row = AllNodes.First(x => x.Node.Key == node.Key);
+            var loaded = await AccountingDataService.GetChartEditAsync(row.Level, long.Parse(node.DisplayNumber));
+            if (loaded is null) { messageError = true; message = "الحساب لم يعد موجوداً. أعد تحميل الصفحة."; return; }
+            form = loaded; editorMessage = ""; showEditor = true;
+        }
+        catch { messageError = true; message = "تعذر تحميل بيانات الحساب."; }
+        finally { busy = false; }
+    }
+    private async Task SaveAsync()
+    {
+        if (busy || isLoading) return;
+        busy = true; editorMessage = "";
+        try
+        {
+            var result = await AccountingDataService.SaveChartAsync(form);
+            if (!result.Success) { editorMessage = result.Message; return; }
+            showEditor = false; messageError = false; message = result.Message;
+            await ReloadAsync();
+        }
+        catch { editorMessage = "تعذر حفظ الحساب. تحقق من الاتصال والعلاقات في قاعدة البيانات ثم حاول مجدداً."; }
+        finally { busy = false; }
+    }
+    private void OpenDelete(ChartTreeNodeVm node)
+    {
+        if (busy || isLoading) return;
+        deleteNode = node;
+        var actual = AllNodes.First(x => x.Node.Key == node.Key).Node;
+        editorMessage = actual.Children.Count > 0 ? "هذا الحساب يحتوي على فروع. انقلها إلى حساب رئيسي آخر أو احذف الفروع غير المستخدمة أولاً." : "";
+    }
+    private async Task DeleteAsync()
+    {
+        if (busy || deleteNode is null) return;
+        busy = true;
+        try
+        {
+            var row = AllNodes.First(x => x.Node.Key == deleteNode.Key);
+            var result = await AccountingDataService.DeleteChartAsync(row.Level, long.Parse(deleteNode.DisplayNumber));
+            if (!result.Success) { editorMessage = result.Message; return; }
+            deleteNode = null; messageError = false; message = result.Message; await ReloadAsync();
+        }
+        catch { editorMessage = "تعذر حذف الحساب. تحقق من الاتصال والبيانات المرتبطة."; }
+        finally { busy = false; }
+    }
+    private async Task ExportPdfAsync() => await ExportAsync(true);
+    private async Task ExportExcelAsync() => await ExportAsync(false);
+    private async Task ExportAsync(bool pdf)
+    {
+        if (busy || isLoading) return;
+        busy = true;
+        try
+        {
+            var tree = SortTreeByAccountNumber(await AccountingDataService.GetChartOfAccountsTreeAsync());
+            var rows = Flatten(tree).Select(x => new ChartExportRow(x.Level, x.Node.DisplayNumber, x.Node.Name, x.ParentId?.ToString() ?? "", x.Path)).ToList();
+            if (pdf) { var company = await AccountingDataService.GetSettingsDataAsync(); var design = await Designs.ForPrintAsync("chart"); await JS.InvokeVoidAsync("chartExport.print", rows, new { design, company.CompanyName, company.CompanyLogo, company.CompanyAddress, company.CompanyPhone, company.CommercialRecord, company.TaxNumber, PrintedBy = PrintSession.CurrentUsername }); message = "اختر حفظ بصيغة PDF من نافذة الطباعة."; }
+            else
+            {
+                var bytes = ChartExcelExporter.Create(rows);
+                await JS.InvokeVoidAsync("chartExport.downloadBase64", "دليل_الحسابات.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", Convert.ToBase64String(bytes));
+                message = "تم تصدير شجرة الحسابات كاملة إلى Excel.";
+            }
+            messageError = false;
+        }
+        catch { messageError = true; message = "تعذر تصدير دليل الحسابات. حاول مجدداً."; }
+        finally { busy = false; }
+    }
+    private static ChartTreeNodeVm? FilterTree(ChartTreeNodeVm node, string term)
+    {
+        var selfMatch = node.DisplayNumber.Contains(term, StringComparison.OrdinalIgnoreCase) || node.LevelTitle.Contains(term, StringComparison.OrdinalIgnoreCase) || node.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
+                        || (!string.IsNullOrWhiteSpace(node.SecondaryText) && node.SecondaryText.Contains(term, StringComparison.OrdinalIgnoreCase));
+
+        var filteredChildren = node.Children
+            .Select(child => FilterTree(child, term))
+            .Where(x => x is not null)
+            .Cast<ChartTreeNodeVm>()
+            .ToList();
+
+        if (!selfMatch && filteredChildren.Count == 0)
+        {
+            return null;
+        }
+
+        return new ChartTreeNodeVm
+        {
+            Key = node.Key,
+            DisplayNumber = node.DisplayNumber,
+            Name = node.Name,
+            LevelTitle = node.LevelTitle,
+            SecondaryText = node.SecondaryText,
+            IsAccountLeaf = node.IsAccountLeaf,
+            AccountId = node.AccountId,
+            CategoryId = node.CategoryId,
+            AccountsCount = node.AccountsCount,
+            Children = selfMatch ? node.Children : filteredChildren
+        };
+    }
+
+    private static List<ChartTreeNodeVm> SortTreeByAccountNumber(
+        IEnumerable<ChartTreeNodeVm> nodes)
+    {
+        var orderedNodes = nodes
+            .OrderBy(node => string.IsNullOrWhiteSpace(node.DisplayNumber))
+            .ThenBy(
+                node => GetNaturalAccountNumberKey(node.DisplayNumber),
+                StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        foreach (var node in orderedNodes)
+        {
+            node.Children = SortTreeByAccountNumber(node.Children);
+        }
+
+        return orderedNodes;
+    }
+
+    private static string GetNaturalAccountNumberKey(string? accountNumber)
+    {
+        if (string.IsNullOrWhiteSpace(accountNumber))
+        {
+            return string.Empty;
+        }
+
+        return System.Text.RegularExpressions.Regex.Replace(
+            accountNumber.Trim(),
+            @"\d+",
+            match =>
+            {
+                var number = match.Value.TrimStart('0');
+                number = number.Length == 0 ? "0" : number;
+                return $"{number.Length:D10}:{number}";
+            });
+    }
+
+
+}
